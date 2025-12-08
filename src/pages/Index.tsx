@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { FileCheck, ArrowRight, Shield, Clock, Users, CheckCircle } from 'lucide-react';
 
 export default function Index() {
@@ -39,6 +40,11 @@ export default function Index() {
 
   return (
     <div className="min-h-screen">
+      {/* Theme Toggle - Fixed Position */}
+      <div className="fixed top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
+
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center bg-gradient-hero overflow-hidden">
         {/* Background decoration */}
