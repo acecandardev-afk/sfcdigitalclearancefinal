@@ -133,6 +133,20 @@ export default function NewClearance() {
 
       if (signaturesError) throw signaturesError;
 
+      // Send email notifications to signatories (fire and forget)
+      supabase.functions.invoke('notify-signatories', {
+        body: {
+          clearance_request_id: clearanceData.id,
+          signatory_ids: selectedSignatories,
+        },
+      }).then((result) => {
+        if (result.error) {
+          console.error('Failed to send notifications:', result.error);
+        } else {
+          console.log('Notifications sent:', result.data);
+        }
+      });
+
       toast.success('Clearance request submitted successfully!');
       navigate('/dashboard');
     } catch (error) {
