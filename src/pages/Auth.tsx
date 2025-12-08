@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { FileCheck, GraduationCap, Shield, Users } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -74,7 +75,11 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-hero flex">
+    <div className="min-h-screen bg-gradient-hero flex relative">
+      {/* Theme Toggle */}
+      <div className="absolute top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
       {/* Left side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 text-primary-foreground">
         <div className="max-w-md animate-fade-in">
