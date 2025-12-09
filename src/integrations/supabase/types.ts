@@ -223,6 +223,11 @@ export type Database = {
         }
         Returns: boolean
       }
+      user_is_signatory: { Args: { sig_id: string }; Returns: boolean }
+      user_owns_clearance_request: {
+        Args: { request_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "student" | "signatory" | "superadmin"
