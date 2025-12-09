@@ -57,11 +57,13 @@ export default function Signatories() {
   const [email, setEmail] = useState('');
 
   useEffect(() => {
-    if (!roleLoading && !isSuperAdmin()) {
-      navigate('/dashboard');
-      return;
+    if (!roleLoading) {
+      if (!isSuperAdmin()) {
+        navigate('/dashboard');
+      } else {
+        fetchSignatories();
+      }
     }
-    fetchSignatories();
   }, [roleLoading, isSuperAdmin, navigate]);
 
   const fetchSignatories = async () => {
