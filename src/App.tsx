@@ -12,6 +12,7 @@ import NewClearance from "./pages/NewClearance";
 import Clearances from "./pages/Clearances";
 import ClearanceDetail from "./pages/ClearanceDetail";
 import Signatories from "./pages/Signatories";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/dashboard/clearances/new" element={<NewClearance />} />
               <Route path="/dashboard/clearances/:id" element={<ClearanceDetail />} />
               <Route path="/dashboard/signatories" element={<Signatories />} />
+              <Route path="/dashboard/settings" element={<Settings />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
