@@ -9,6 +9,8 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import NewClearance from "./pages/NewClearance";
+import Clearances from "./pages/Clearances";
+import ClearanceDetail from "./pages/ClearanceDetail";
 import Signatories from "./pages/Signatories";
 import NotFound from "./pages/NotFound";
 
@@ -26,7 +28,9 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/dashboard/clearances" element={<Clearances />} />
               <Route path="/dashboard/clearances/new" element={<NewClearance />} />
+              <Route path="/dashboard/clearances/:id" element={<ClearanceDetail />} />
               <Route path="/dashboard/signatories" element={<Signatories />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
