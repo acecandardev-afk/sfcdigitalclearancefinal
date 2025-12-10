@@ -40,14 +40,38 @@ import {
   Users,
   UserCog,
   Search,
+  Activity,
+  LogIn,
+  LogOut,
+  FileText,
+  Edit,
+  Trash,
+  Eye,
+  Upload,
+  UserPlus,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { logActivity } from '@/hooks/useActivityLog';
 
 interface UserWithRoles {
   id: string;
   email: string;
   full_name: string;
   roles: AppRole[];
+}
+
+interface ActivityLog {
+  id: string;
+  user_id: string;
+  action: string;
+  details: Record<string, unknown> | null;
+  user_agent: string | null;
+  created_at: string;
+  user_email?: string;
+  user_name?: string;
 }
 
 export default function Settings() {
@@ -79,6 +103,12 @@ export default function Settings() {
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [selectedRoles, setSelectedRoles] = useState<AppRole[]>([]);
   const [savingRoles, setSavingRoles] = useState(false);
+
+  // Activity logs state
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [actionFilter, setActionFilter] = useState<string>('all');
 
   const fetchUsers = async () => {
     setLoadingUsers(true);
@@ -150,9 +180,20 @@ export default function Settings() {
         if (insertError) throw insertError;
       }
 
+      // Log the activity
+      await logActivity({
+        action: 'update_user_roles',
+        details: {
+          target_user_id: selectedUser.id,
+          target_user_email: selectedUser.email,
+          new_roles: selectedRoles,
+        },
+      });
+
       toast.success('User roles updated successfully');
       setRoleDialogOpen(false);
       fetchUsers();
+      fetchActivityLogs();
     } catch (error) {
       console.error('Error updating roles:', error);
       toast.error('Failed to update roles');
@@ -173,11 +214,96 @@ export default function Settings() {
       user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const fetchActivityLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const { data: logs, error: logsError } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (logsError) throw logsError;
+
+      // Get user info for each log
+      const userIds = [...new Set((logs || []).map((log) => log.user_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .in('id', userIds);
+
+      const profileMap = new Map(profiles?.map((p) => [p.id, p]) || []);
+
+      const logsWithUsers: ActivityLog[] = (logs || []).map((log) => ({
+        ...log,
+        details: log.details as Record<string, unknown> | null,
+        user_email: profileMap.get(log.user_id)?.email || 'Unknown',
+        user_name: profileMap.get(log.user_id)?.full_name || 'Unknown User',
+      }));
+
+      setActivityLogs(logsWithUsers);
+    } catch (error) {
+      console.error('Error fetching activity logs:', error);
+      toast.error('Failed to load activity logs');
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case 'login':
+        return <LogIn className="h-4 w-4 text-green-500" />;
+      case 'logout':
+        return <LogOut className="h-4 w-4 text-muted-foreground" />;
+      case 'signup':
+        return <UserPlus className="h-4 w-4 text-blue-500" />;
+      case 'create_clearance':
+        return <FileText className="h-4 w-4 text-primary" />;
+      case 'sign_clearance':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'reject_clearance':
+        return <XCircle className="h-4 w-4 text-destructive" />;
+      case 'upload_file':
+        return <Upload className="h-4 w-4 text-blue-500" />;
+      case 'view_clearance':
+      case 'view_dashboard':
+        return <Eye className="h-4 w-4 text-muted-foreground" />;
+      case 'update_user_roles':
+      case 'update_signatory':
+      case 'update_clearance':
+        return <Edit className="h-4 w-4 text-orange-500" />;
+      case 'delete_signatory':
+        return <Trash className="h-4 w-4 text-destructive" />;
+      default:
+        return <Activity className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  const formatActionLabel = (action: string) => {
+    return action
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  const filteredLogs = activityLogs.filter((log) => {
+    const matchesSearch =
+      log.user_name?.toLowerCase().includes(logSearchQuery.toLowerCase()) ||
+      log.user_email?.toLowerCase().includes(logSearchQuery.toLowerCase()) ||
+      log.action.toLowerCase().includes(logSearchQuery.toLowerCase());
+    const matchesAction = actionFilter === 'all' || log.action === actionFilter;
+    return matchesSearch && matchesAction;
+  });
+
+  const uniqueActions = [...new Set(activityLogs.map((log) => log.action))];
+
   useEffect(() => {
     if (!roleLoading && !isSuperAdmin()) {
       navigate('/dashboard');
     } else if (!roleLoading && isSuperAdmin()) {
       fetchUsers();
+      fetchActivityLogs();
     }
   }, [roleLoading, isSuperAdmin, navigate]);
 
@@ -232,7 +358,7 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
             <TabsTrigger value="general" className="gap-2">
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -240,6 +366,10 @@ export default function Settings() {
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               <span className="hidden sm:inline">Users</span>
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="gap-2">
+              <Activity className="h-4 w-4" />
+              <span className="hidden sm:inline">Activity</span>
             </TabsTrigger>
             <TabsTrigger value="notifications" className="gap-2">
               <Bell className="h-4 w-4" />
@@ -408,6 +538,112 @@ export default function Settings() {
                     </Table>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Activity Logs */}
+          <TabsContent value="activity">
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-primary" />
+                  Activity Logs
+                </CardTitle>
+                <CardDescription>
+                  View login history and user actions across the system
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by user or action..."
+                      value={logSearchQuery}
+                      onChange={(e) => setLogSearchQuery(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <select
+                    value={actionFilter}
+                    onChange={(e) => setActionFilter(e.target.value)}
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  >
+                    <option value="all">All Actions</option>
+                    {uniqueActions.map((action) => (
+                      <option key={action} value={action}>
+                        {formatActionLabel(action)}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="outline" onClick={fetchActivityLogs} disabled={loadingLogs}>
+                    {loadingLogs ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+                  </Button>
+                </div>
+
+                {loadingLogs ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12"></TableHead>
+                          <TableHead>User</TableHead>
+                          <TableHead>Action</TableHead>
+                          <TableHead>Details</TableHead>
+                          <TableHead>Date & Time</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredLogs.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                              {logSearchQuery || actionFilter !== 'all'
+                                ? 'No logs found matching your filters'
+                                : 'No activity logs yet'}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredLogs.map((log) => (
+                            <TableRow key={log.id}>
+                              <TableCell>{getActionIcon(log.action)}</TableCell>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{log.user_name}</p>
+                                  <p className="text-xs text-muted-foreground">{log.user_email}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{formatActionLabel(log.action)}</Badge>
+                              </TableCell>
+                              <TableCell className="max-w-[200px]">
+                                {log.details && Object.keys(log.details).length > 0 ? (
+                                  <span className="text-xs text-muted-foreground truncate block">
+                                    {JSON.stringify(log.details).slice(0, 50)}
+                                    {JSON.stringify(log.details).length > 50 && '...'}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {format(new Date(log.created_at), 'MMM d, yyyy h:mm a')}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground text-center">
+                  Showing the last 200 activity logs
+                </p>
               </CardContent>
             </Card>
           </TabsContent>
