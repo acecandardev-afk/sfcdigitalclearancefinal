@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useUserRole, AppRole } from '@/hooks/useUserRole';
+import { supabase } from '@/integrations/supabase/client';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,24 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Settings as SettingsIcon,
   Bell,
@@ -18,8 +37,18 @@ import {
   Loader2,
   Save,
   Building2,
+  Users,
+  UserCog,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+interface UserWithRoles {
+  id: string;
+  email: string;
+  full_name: string;
+  roles: AppRole[];
+}
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -42,9 +71,113 @@ export default function Settings() {
   const [allowMultipleClearances, setAllowMultipleClearances] = useState(false);
   const [autoApproveAfterDays, setAutoApproveAfterDays] = useState('');
 
+  // User management state
+  const [users, setUsers] = useState<UserWithRoles[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUser, setSelectedUser] = useState<UserWithRoles | null>(null);
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [selectedRoles, setSelectedRoles] = useState<AppRole[]>([]);
+  const [savingRoles, setSavingRoles] = useState(false);
+
+  const fetchUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      // Fetch all profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .order('full_name');
+
+      if (profilesError) throw profilesError;
+
+      // Fetch all user roles
+      const { data: userRoles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      if (rolesError) throw rolesError;
+
+      // Combine profiles with their roles
+      const usersWithRoles: UserWithRoles[] = (profiles || []).map((profile) => ({
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name,
+        roles: (userRoles || [])
+          .filter((r) => r.user_id === profile.id)
+          .map((r) => r.role as AppRole),
+      }));
+
+      setUsers(usersWithRoles);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast.error('Failed to load users');
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleEditRoles = (user: UserWithRoles) => {
+    setSelectedUser(user);
+    setSelectedRoles(user.roles);
+    setRoleDialogOpen(true);
+  };
+
+  const handleSaveRoles = async () => {
+    if (!selectedUser) return;
+
+    setSavingRoles(true);
+    try {
+      // Delete existing roles for this user
+      const { error: deleteError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', selectedUser.id);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new roles
+      if (selectedRoles.length > 0) {
+        const { error: insertError } = await supabase
+          .from('user_roles')
+          .insert(
+            selectedRoles.map((role) => ({
+              user_id: selectedUser.id,
+              role,
+            }))
+          );
+
+        if (insertError) throw insertError;
+      }
+
+      toast.success('User roles updated successfully');
+      setRoleDialogOpen(false);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error updating roles:', error);
+      toast.error('Failed to update roles');
+    } finally {
+      setSavingRoles(false);
+    }
+  };
+
+  const toggleRole = (role: AppRole) => {
+    setSelectedRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+    );
+  };
+
+  const filteredUsers = users.filter(
+    (user) =>
+      user.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   useEffect(() => {
     if (!roleLoading && !isSuperAdmin()) {
       navigate('/dashboard');
+    } else if (!roleLoading && isSuperAdmin()) {
+      fetchUsers();
     }
   }, [roleLoading, isSuperAdmin, navigate]);
 
@@ -99,10 +232,14 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
             <TabsTrigger value="general" className="gap-2">
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
+            </TabsTrigger>
+            <TabsTrigger value="users" className="gap-2">
+              <Users className="h-4 w-4" />
+              <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
             <TabsTrigger value="notifications" className="gap-2">
               <Bell className="h-4 w-4" />
@@ -178,6 +315,99 @@ export default function Settings() {
                     )}
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* User Management */}
+          <TabsContent value="users">
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="font-display flex items-center gap-2">
+                  <UserCog className="h-5 w-5 text-primary" />
+                  User Management
+                </CardTitle>
+                <CardDescription>
+                  View all users and manage their roles
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search users by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {loadingUsers ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Roles</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredUsers.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                              {searchQuery ? 'No users found matching your search' : 'No users found'}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredUsers.map((user) => (
+                            <TableRow key={user.id}>
+                              <TableCell className="font-medium">{user.full_name || 'No name'}</TableCell>
+                              <TableCell className="text-muted-foreground">{user.email}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {user.roles.length === 0 ? (
+                                    <Badge variant="outline" className="text-muted-foreground">No roles</Badge>
+                                  ) : (
+                                    user.roles.map((role) => (
+                                      <Badge
+                                        key={role}
+                                        variant={
+                                          role === 'superadmin'
+                                            ? 'destructive'
+                                            : role === 'signatory'
+                                            ? 'secondary'
+                                            : 'default'
+                                        }
+                                      >
+                                        {role}
+                                      </Badge>
+                                    ))
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEditRoles(user)}
+                                >
+                                  <UserCog className="h-4 w-4 mr-1" />
+                                  Manage Roles
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -353,6 +583,56 @@ export default function Settings() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Role Management Dialog */}
+        <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Manage User Roles</DialogTitle>
+              <DialogDescription>
+                {selectedUser && (
+                  <>
+                    Update roles for <span className="font-medium">{selectedUser.full_name || selectedUser.email}</span>
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {(['student', 'signatory', 'superadmin'] as AppRole[]).map((role) => (
+                <div key={role} className="flex items-center space-x-3">
+                  <Checkbox
+                    id={`role-${role}`}
+                    checked={selectedRoles.includes(role)}
+                    onCheckedChange={() => toggleRole(role)}
+                  />
+                  <Label htmlFor={`role-${role}`} className="flex-1 cursor-pointer">
+                    <span className="font-medium capitalize">{role}</span>
+                    <p className="text-sm text-muted-foreground">
+                      {role === 'student' && 'Can submit clearance requests'}
+                      {role === 'signatory' && 'Can sign clearance requests'}
+                      {role === 'superadmin' && 'Full system access and user management'}
+                    </p>
+                  </Label>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRoleDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveRoles} disabled={savingRoles}>
+                {savingRoles ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Roles'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
