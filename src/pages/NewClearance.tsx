@@ -299,6 +299,7 @@ export default function NewClearance() {
                           >
                             <Checkbox
                               checked={selectedSignatories.includes(sig.id)}
+                              className="pointer-events-none"
                             />
                             <div>
                               <p className="font-medium">{sig.name}</p>
