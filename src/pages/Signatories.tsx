@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, Loader2, Users, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Signatory {
@@ -36,8 +39,27 @@ interface Signatory {
   department: string;
   email: string;
   is_active: boolean;
+  user_id: string | null;
   created_at: string;
 }
+
+const signatorySchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(100, 'Name must be less than 100 characters'),
+  position: z.string().trim().min(1, 'Position is required').max(100, 'Position must be less than 100 characters'),
+  department: z.string().trim().min(1, 'Department is required').max(100, 'Department must be less than 100 characters'),
+  email: z.string().trim().email('Invalid email address').max(255, 'Email must be less than 255 characters'),
+});
+
+const accountSchema = z.object({
+  password: z.string().min(6, 'Password must be at least 6 characters').max(72, 'Password must be less than 72 characters'),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+type SignatoryFormData = z.infer<typeof signatorySchema>;
+type AccountFormData = z.infer<typeof accountSchema>;
 
 export default function Signatories() {
   const navigate = useNavigate();
@@ -46,15 +68,20 @@ export default function Signatories() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedSignatory, setSelectedSignatory] = useState<Signatory | null>(null);
   const [formLoading, setFormLoading] = useState(false);
 
-  // Form state
-  const [name, setName] = useState('');
-  const [position, setPosition] = useState('');
-  const [department, setDepartment] = useState('');
-  const [email, setEmail] = useState('');
+  const signatoryForm = useForm<SignatoryFormData>({
+    resolver: zodResolver(signatorySchema),
+    defaultValues: { name: '', position: '', department: '', email: '' },
+  });
+
+  const accountForm = useForm<AccountFormData>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: { password: '', confirmPassword: '' },
+  });
 
   useEffect(() => {
     if (!roleLoading) {
@@ -86,19 +113,18 @@ export default function Signatories() {
 
   const openAddDialog = () => {
     setSelectedSignatory(null);
-    setName('');
-    setPosition('');
-    setDepartment('');
-    setEmail('');
+    signatoryForm.reset({ name: '', position: '', department: '', email: '' });
     setDialogOpen(true);
   };
 
   const openEditDialog = (signatory: Signatory) => {
     setSelectedSignatory(signatory);
-    setName(signatory.name);
-    setPosition(signatory.position);
-    setDepartment(signatory.department);
-    setEmail(signatory.email);
+    signatoryForm.reset({
+      name: signatory.name,
+      position: signatory.position,
+      department: signatory.department,
+      email: signatory.email,
+    });
     setDialogOpen(true);
   };
 
@@ -107,31 +133,28 @@ export default function Signatories() {
     setDeleteDialogOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const openAccountDialog = (signatory: Signatory) => {
+    setSelectedSignatory(signatory);
+    accountForm.reset({ password: '', confirmPassword: '' });
+    setAccountDialogOpen(true);
+  };
 
-    if (!name || !position || !department || !email) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-
+  const onSignatorySubmit = async (data: SignatoryFormData) => {
     setFormLoading(true);
 
     try {
       if (selectedSignatory) {
-        // Update existing
         const { error } = await supabase
           .from('signatories')
-          .update({ name, position, department, email })
+          .update(data)
           .eq('id', selectedSignatory.id);
 
         if (error) throw error;
         toast.success('Signatory updated successfully');
       } else {
-        // Create new
         const { error } = await supabase
           .from('signatories')
-          .insert({ name, position, department, email, is_active: true });
+          .insert([{ name: data.name, position: data.position, department: data.department, email: data.email, is_active: true }]);
 
         if (error) throw error;
         toast.success('Signatory added successfully');
@@ -142,6 +165,35 @@ export default function Signatories() {
     } catch (error) {
       console.error('Error saving signatory:', error);
       toast.error('Failed to save signatory');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const onAccountSubmit = async (data: AccountFormData) => {
+    if (!selectedSignatory) return;
+
+    setFormLoading(true);
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('create-signatory-account', {
+        body: {
+          signatory_id: selectedSignatory.id,
+          email: selectedSignatory.email,
+          password: data.password,
+          full_name: selectedSignatory.name,
+        },
+      });
+
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+
+      toast.success('Account created successfully! The signatory can now login.');
+      setAccountDialogOpen(false);
+      fetchSignatories();
+    } catch (error: any) {
+      console.error('Error creating account:', error);
+      toast.error(error.message || 'Failed to create account');
     } finally {
       setFormLoading(false);
     }
@@ -258,11 +310,21 @@ export default function Signatories() {
                         <Users className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-semibold">{signatory.name}</h4>
                           <Badge variant={signatory.is_active ? 'success' : 'secondary'}>
                             {signatory.is_active ? 'Active' : 'Inactive'}
                           </Badge>
+                          {signatory.user_id ? (
+                            <Badge variant="outline" className="text-green-600 border-green-600">
+                              <KeyRound className="h-3 w-3 mr-1" />
+                              Has Account
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-amber-600 border-amber-600">
+                              No Account
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground">{signatory.position}</p>
                         <p className="text-sm text-muted-foreground">
@@ -270,7 +332,17 @@ export default function Signatories() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 ml-12 sm:ml-0">
+                    <div className="flex items-center gap-2 ml-12 sm:ml-0 flex-wrap">
+                      {!signatory.user_id && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => openAccountDialog(signatory)}
+                        >
+                          <UserPlus className="h-4 w-4 mr-1" />
+                          Create Account
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -302,7 +374,7 @@ export default function Signatories() {
         </Card>
       </div>
 
-      {/* Add/Edit Dialog */}
+      {/* Add/Edit Signatory Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -315,66 +387,136 @@ export default function Signatories() {
                 : 'Enter the details for the new signatory.'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Dr. Juan Dela Cruz"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="position">Position</Label>
-              <Input
-                id="position"
-                value={position}
-                onChange={(e) => setPosition(e.target.value)}
-                placeholder="Department Head"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="department">Department</Label>
-              <Input
-                id="department"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                placeholder="College of Information Technology"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="signatory@school.edu"
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={formLoading}>
-                {formLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : selectedSignatory ? (
-                  'Update'
-                ) : (
-                  'Add Signatory'
+          <Form {...signatoryForm}>
+            <form onSubmit={signatoryForm.handleSubmit(onSignatorySubmit)} className="space-y-4">
+              <FormField
+                control={signatoryForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Full Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Dr. Juan Dela Cruz" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-              </Button>
-            </DialogFooter>
-          </form>
+              />
+              <FormField
+                control={signatoryForm.control}
+                name="position"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Position</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Department Head" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={signatoryForm.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department</FormLabel>
+                    <FormControl>
+                      <Input placeholder="College of Information Technology" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={signatoryForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="signatory@school.edu" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={formLoading}>
+                  {formLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : selectedSignatory ? (
+                    'Update'
+                  ) : (
+                    'Add Signatory'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Account Dialog */}
+      <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">Create Account for Signatory</DialogTitle>
+            <DialogDescription>
+              Create a login account for <strong>{selectedSignatory?.name}</strong>. They will use their email ({selectedSignatory?.email}) to sign in.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...accountForm}>
+            <form onSubmit={accountForm.handleSubmit(onAccountSubmit)} className="space-y-4">
+              <FormField
+                control={accountForm.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={accountForm.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setAccountDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={formLoading}>
+                  {formLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Account'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
 
