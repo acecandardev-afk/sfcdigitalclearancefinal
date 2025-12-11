@@ -8,8 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Upload, X, Loader2, FileText, Send } from 'lucide-react';
+import { ArrowLeft, Upload, X, Loader2, FileText, Send, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Signatory {
@@ -297,10 +296,13 @@ export default function NewClearance() {
                             }`}
                             onClick={() => toggleSignatory(sig.id)}
                           >
-                            <Checkbox
-                              checked={selectedSignatories.includes(sig.id)}
-                              className="pointer-events-none"
-                            />
+                            <div className={`h-4 w-4 shrink-0 rounded-sm border border-primary ring-offset-background flex items-center justify-center ${
+                              selectedSignatories.includes(sig.id) ? 'bg-primary text-primary-foreground' : ''
+                            }`}>
+                              {selectedSignatories.includes(sig.id) && (
+                                <Check className="h-3 w-3" />
+                              )}
+                            </div>
                             <div>
                               <p className="font-medium">{sig.name}</p>
                               <p className="text-sm text-muted-foreground">{sig.position}</p>
