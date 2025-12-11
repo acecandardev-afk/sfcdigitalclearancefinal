@@ -299,7 +299,6 @@ export default function NewClearance() {
                           >
                             <Checkbox
                               checked={selectedSignatories.includes(sig.id)}
-                              onCheckedChange={() => toggleSignatory(sig.id)}
                             />
                             <div>
                               <p className="font-medium">{sig.name}</p>
