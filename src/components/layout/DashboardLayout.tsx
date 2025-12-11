@@ -89,9 +89,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate('/dashboard/profile')}>
+                <DropdownMenuItem onClick={() => navigate('/dashboard/account')}>
                   <User className="mr-2 h-4 w-4" />
-                  Profile
+                  Account Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
@@ -155,7 +155,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{user?.email}</p>
-                  <p className="text-xs text-sidebar-foreground/60">Student</p>
+                  <p className="text-xs text-sidebar-foreground/60">
+                    {isSuperAdmin() ? 'Admin' : isSignatory() ? 'Signatory' : 'Student'}
+                  </p>
                 </div>
               </div>
               <Button
