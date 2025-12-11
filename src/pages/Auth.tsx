@@ -134,7 +134,7 @@ export default function Auth() {
               <span className="text-2xl font-display font-bold">SFC-G DCS</span>
             </div>
             <CardTitle className="text-2xl font-display">Welcome</CardTitle>
-            <CardDescription>Sign in to your account or create a new one</CardDescription>
+            <CardDescription>Sign in to your account or register as a student</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="login" className="w-full">
