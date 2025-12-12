@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -56,6 +57,7 @@ export default function SignatoryDashboard() {
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
   const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -165,9 +167,14 @@ export default function SignatoryDashboard() {
   const approvedCount = signatures.filter((s) => s.status === 'approved').length;
   const rejectedCount = signatures.filter((s) => s.status === 'rejected').length;
 
-  const filteredSignatures = statusFilter === 'all' 
-    ? signatures 
-    : signatures.filter((s) => s.status === statusFilter);
+  const filteredSignatures = signatures.filter((s) => {
+    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = !query || 
+      s.clearance_request.title.toLowerCase().includes(query) ||
+      s.clearance_request.profiles.full_name.toLowerCase().includes(query);
+    return matchesStatus && matchesSearch;
+  });
 
   return (
     <div className="p-6 space-y-8">
@@ -222,24 +229,35 @@ export default function SignatoryDashboard() {
 
       {/* Pending Requests */}
       <Card className="shadow-card">
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <CardTitle className="font-display">Clearance Requests</CardTitle>
-            <CardDescription>Review and process student clearance requests</CardDescription>
+        <CardHeader className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="font-display">Clearance Requests</CardTitle>
+              <CardDescription>Review and process student clearance requests</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Filter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All ({signatures.length})</SelectItem>
+                  <SelectItem value="pending">Pending ({pendingCount})</SelectItem>
+                  <SelectItem value="approved">Approved ({approvedCount})</SelectItem>
+                  <SelectItem value="rejected">Rejected ({rejectedCount})</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Filter status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All ({signatures.length})</SelectItem>
-                <SelectItem value="pending">Pending ({pendingCount})</SelectItem>
-                <SelectItem value="approved">Approved ({approvedCount})</SelectItem>
-                <SelectItem value="rejected">Rejected ({rejectedCount})</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by student name or title..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
           </div>
         </CardHeader>
         <CardContent>
