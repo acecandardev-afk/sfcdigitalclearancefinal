@@ -14,8 +14,9 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Eye } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
+import ClearanceFilesViewer from './ClearanceFilesViewer';
 
 interface PendingSignature {
   id: string;
@@ -45,6 +46,8 @@ export default function SignatoryDashboard() {
   const [notes, setNotes] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
+  const [filesViewerOpen, setFilesViewerOpen] = useState(false);
+  const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -103,6 +106,11 @@ export default function SignatoryDashboard() {
     setActionType(type);
     setNotes('');
     setDialogOpen(true);
+  };
+
+  const handleViewFiles = (signature: PendingSignature) => {
+    setViewingSignature(signature);
+    setFilesViewerOpen(true);
   };
 
   const submitAction = async () => {
@@ -246,6 +254,14 @@ export default function SignatoryDashboard() {
                   </div>
                   <div className="flex items-center gap-3 ml-12 sm:ml-0">
                     {getStatusBadge(signature.status)}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleViewFiles(signature)}
+                    >
+                      <Paperclip className="h-4 w-4 mr-1" />
+                      Files
+                    </Button>
                     {signature.status === 'pending' && (
                       <>
                         <Button
@@ -322,6 +338,17 @@ export default function SignatoryDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Files Viewer Dialog */}
+      {viewingSignature && (
+        <ClearanceFilesViewer
+          clearanceRequestId={viewingSignature.clearance_request.id}
+          clearanceTitle={viewingSignature.clearance_request.title}
+          studentName={viewingSignature.clearance_request.profiles.full_name}
+          open={filesViewerOpen}
+          onOpenChange={setFilesViewerOpen}
+        />
+      )}
     </div>
   );
 }
