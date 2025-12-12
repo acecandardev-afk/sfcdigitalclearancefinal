@@ -14,7 +14,14 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import ClearanceFilesViewer from './ClearanceFilesViewer';
 
@@ -48,6 +55,7 @@ export default function SignatoryDashboard() {
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
   const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   useEffect(() => {
     if (user) {
@@ -157,6 +165,10 @@ export default function SignatoryDashboard() {
   const approvedCount = signatures.filter((s) => s.status === 'approved').length;
   const rejectedCount = signatures.filter((s) => s.status === 'rejected').length;
 
+  const filteredSignatures = statusFilter === 'all' 
+    ? signatures 
+    : signatures.filter((s) => s.status === statusFilter);
+
   return (
     <div className="p-6 space-y-8">
       {/* Header */}
@@ -210,26 +222,46 @@ export default function SignatoryDashboard() {
 
       {/* Pending Requests */}
       <Card className="shadow-card">
-        <CardHeader>
-          <CardTitle className="font-display">Clearance Requests</CardTitle>
-          <CardDescription>Review and process student clearance requests</CardDescription>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <CardTitle className="font-display">Clearance Requests</CardTitle>
+            <CardDescription>Review and process student clearance requests</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Filter status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All ({signatures.length})</SelectItem>
+                <SelectItem value="pending">Pending ({pendingCount})</SelectItem>
+                <SelectItem value="approved">Approved ({approvedCount})</SelectItem>
+                <SelectItem value="rejected">Rejected ({rejectedCount})</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : signatures.length === 0 ? (
+          ) : filteredSignatures.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-semibold">No requests assigned</h3>
+              <h3 className="mt-4 text-lg font-semibold">
+                {signatures.length === 0 ? 'No requests assigned' : 'No matching requests'}
+              </h3>
               <p className="text-muted-foreground mt-2">
-                You don't have any clearance requests to review
+                {signatures.length === 0 
+                  ? "You don't have any clearance requests to review"
+                  : `No ${statusFilter} requests found`}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {signatures.map((signature, index) => (
+              {filteredSignatures.map((signature, index) => (
                 <div
                   key={signature.id}
                   className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4"
