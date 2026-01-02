@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -68,6 +68,8 @@ export default function SignatoryDashboard() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortBy, setSortBy] = useState<'date' | 'name' | 'title'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -187,16 +189,33 @@ export default function SignatoryDashboard() {
     return matchesStatus && matchesSearch;
   });
 
+  // Sort filtered signatures
+  const sortedSignatures = [...filteredSignatures].sort((a, b) => {
+    let comparison = 0;
+    switch (sortBy) {
+      case 'date':
+        comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        break;
+      case 'name':
+        comparison = a.clearance_request.profiles.full_name.localeCompare(b.clearance_request.profiles.full_name);
+        break;
+      case 'title':
+        comparison = a.clearance_request.title.localeCompare(b.clearance_request.title);
+        break;
+    }
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
   // Pagination calculations
-  const totalPages = Math.ceil(filteredSignatures.length / itemsPerPage);
+  const totalPages = Math.ceil(sortedSignatures.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedSignatures = filteredSignatures.slice(startIndex, endIndex);
+  const paginatedSignatures = sortedSignatures.slice(startIndex, endIndex);
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, searchQuery, sortBy, sortOrder]);
 
   const getPageNumbers = () => {
     const pages: (number | 'ellipsis')[] = [];
@@ -273,7 +292,7 @@ export default function SignatoryDashboard() {
               <CardTitle className="font-display">Clearance Requests</CardTitle>
               <CardDescription>Review and process student clearance requests</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
                 <SelectTrigger className="w-[140px]">
@@ -284,6 +303,26 @@ export default function SignatoryDashboard() {
                   <SelectItem value="pending">Pending ({pendingCount})</SelectItem>
                   <SelectItem value="approved">Approved ({approvedCount})</SelectItem>
                   <SelectItem value="rejected">Rejected ({rejectedCount})</SelectItem>
+                </SelectContent>
+              </Select>
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground ml-2" />
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date">Date</SelectItem>
+                  <SelectItem value="name">Student Name</SelectItem>
+                  <SelectItem value="title">Title</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue placeholder="Order" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desc">Newest</SelectItem>
+                  <SelectItem value="asc">Oldest</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -380,7 +419,7 @@ export default function SignatoryDashboard() {
               {totalPages > 1 && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-border">
                   <p className="text-sm text-muted-foreground">
-                    Showing {startIndex + 1}-{Math.min(endIndex, filteredSignatures.length)} of {filteredSignatures.length} requests
+                    Showing {startIndex + 1}-{Math.min(endIndex, sortedSignatures.length)} of {sortedSignatures.length} requests
                   </p>
                   <Pagination>
                     <PaginationContent>
