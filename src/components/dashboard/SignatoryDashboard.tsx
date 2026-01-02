@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -70,6 +71,11 @@ export default function SignatoryDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'title'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkActionType, setBulkActionType] = useState<'approve' | 'reject'>('approve');
+  const [bulkNotes, setBulkNotes] = useState('');
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -211,6 +217,72 @@ export default function SignatoryDashboard() {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedSignatures = sortedSignatures.slice(startIndex, endIndex);
+
+  // Bulk action helpers (must be after paginatedSignatures is defined)
+  const pendingSignaturesOnPage = paginatedSignatures.filter(s => s.status === 'pending');
+  const allPendingSelected = pendingSignaturesOnPage.length > 0 && 
+    pendingSignaturesOnPage.every(s => selectedIds.has(s.id));
+  const somePendingSelected = pendingSignaturesOnPage.some(s => selectedIds.has(s.id));
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      const newSelected = new Set(selectedIds);
+      pendingSignaturesOnPage.forEach(s => newSelected.delete(s.id));
+      setSelectedIds(newSelected);
+    } else {
+      const newSelected = new Set(selectedIds);
+      pendingSignaturesOnPage.forEach(s => newSelected.add(s.id));
+      setSelectedIds(newSelected);
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkAction = (type: 'approve' | 'reject') => {
+    if (selectedIds.size === 0) {
+      toast.error('Please select at least one request');
+      return;
+    }
+    setBulkActionType(type);
+    setBulkNotes('');
+    setBulkDialogOpen(true);
+  };
+
+  const submitBulkAction = async () => {
+    if (selectedIds.size === 0) return;
+
+    setBulkActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('clearance_signatures')
+        .update({
+          status: bulkActionType === 'approve' ? 'approved' : 'rejected',
+          notes: bulkNotes || null,
+          signed_at: new Date().toISOString(),
+        })
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      toast.success(`${selectedIds.size} clearance(s) ${bulkActionType === 'approve' ? 'approved' : 'rejected'} successfully`);
+      setBulkDialogOpen(false);
+      setSelectedIds(new Set());
+      fetchPendingSignatures();
+    } catch (error) {
+      console.error('Error updating signatures:', error);
+      toast.error('Failed to update signatures');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
 
   // Reset to first page when filters change
   useEffect(() => {
@@ -356,6 +428,44 @@ export default function SignatoryDashboard() {
             </div>
           ) : (
             <>
+              {/* Bulk Actions Bar */}
+              {pendingSignaturesOnPage.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="select-all"
+                      checked={allPendingSelected}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                    <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                      Select all pending ({pendingSignaturesOnPage.length})
+                    </label>
+                  </div>
+                  {selectedIds.size > 0 && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <span className="text-sm text-muted-foreground">
+                        {selectedIds.size} selected
+                      </span>
+                      <Button
+                        variant="success"
+                        size="sm"
+                        onClick={() => handleBulkAction('approve')}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Approve Selected
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleBulkAction('reject')}
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Reject Selected
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="space-y-4">
                 {paginatedSignatures.map((signature, index) => (
                   <div
@@ -364,6 +474,13 @@ export default function SignatoryDashboard() {
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
                     <div className="flex items-start gap-4">
+                      {signature.status === 'pending' && (
+                        <Checkbox
+                          checked={selectedIds.has(signature.id)}
+                          onCheckedChange={() => toggleSelectOne(signature.id)}
+                          className="mt-1"
+                        />
+                      )}
                       <div className="p-2 bg-primary/10 rounded-lg">
                         <FileText className="h-5 w-5 text-primary" />
                       </div>
@@ -503,6 +620,55 @@ export default function SignatoryDashboard() {
                 <XCircle className="h-4 w-4 mr-2" />
               )}
               {actionType === 'approve' ? 'Approve' : 'Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Action Dialog */}
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {bulkActionType === 'approve' ? 'Approve' : 'Reject'} {selectedIds.size} Clearance(s)
+            </DialogTitle>
+            <DialogDescription>
+              {bulkActionType === 'approve'
+                ? `Confirm approval of ${selectedIds.size} clearance request(s).`
+                : `Provide a reason for rejecting ${selectedIds.size} clearance request(s).`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Notes (optional - applies to all selected)</Label>
+              <Textarea
+                placeholder={
+                  bulkActionType === 'approve'
+                    ? 'Add any notes for the students...'
+                    : 'Explain why these clearances are being rejected...'
+                }
+                value={bulkNotes}
+                onChange={(e) => setBulkNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant={bulkActionType === 'approve' ? 'success' : 'destructive'}
+              onClick={submitBulkAction}
+              disabled={bulkActionLoading}
+            >
+              {bulkActionLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : bulkActionType === 'approve' ? (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-2" />
+              )}
+              {bulkActionType === 'approve' ? 'Approve All' : 'Reject All'}
             </Button>
           </DialogFooter>
         </DialogContent>
