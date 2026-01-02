@@ -25,6 +25,15 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import ClearanceFilesViewer from './ClearanceFilesViewer';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
 
 interface PendingSignature {
   id: string;
@@ -58,6 +67,8 @@ export default function SignatoryDashboard() {
   const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     if (user) {
@@ -176,6 +187,33 @@ export default function SignatoryDashboard() {
     return matchesStatus && matchesSearch;
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredSignatures.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedSignatures = filteredSignatures.slice(startIndex, endIndex);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
+
+  const getPageNumbers = () => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 3) {
+        pages.push(1, 2, 3, 4, 'ellipsis', totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1, 'ellipsis', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+      } else {
+        pages.push(1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', totalPages);
+      }
+    }
+    return pages;
+  };
+
   return (
     <div className="p-6 space-y-8">
       {/* Header */}
@@ -278,64 +316,106 @@ export default function SignatoryDashboard() {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredSignatures.map((signature, index) => (
-                <div
-                  key={signature.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4"
-                  style={{ animationDelay: `${index * 0.05}s` }}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <FileText className="h-5 w-5 text-primary" />
+            <>
+              <div className="space-y-4">
+                {paginatedSignatures.map((signature, index) => (
+                  <div
+                    key={signature.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-2 bg-primary/10 rounded-lg">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold">{signature.clearance_request.title}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {signature.clearance_request.profiles.full_name}
+                          {signature.clearance_request.profiles.student_id && (
+                            <span className="ml-2">• {signature.clearance_request.profiles.student_id}</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {signature.clearance_request.profiles.course} • {signature.clearance_request.profiles.year_level}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-semibold">{signature.clearance_request.title}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {signature.clearance_request.profiles.full_name}
-                        {signature.clearance_request.profiles.student_id && (
-                          <span className="ml-2">• {signature.clearance_request.profiles.student_id}</span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {signature.clearance_request.profiles.course} • {signature.clearance_request.profiles.year_level}
-                      </p>
+                    <div className="flex items-center gap-3 ml-12 sm:ml-0">
+                      {getStatusBadge(signature.status)}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewFiles(signature)}
+                      >
+                        <Paperclip className="h-4 w-4 mr-1" />
+                        Files
+                      </Button>
+                      {signature.status === 'pending' && (
+                        <>
+                          <Button
+                            variant="success"
+                            size="sm"
+                            onClick={() => handleAction(signature, 'approve')}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Approve
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleAction(signature, 'reject')}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Reject
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 ml-12 sm:ml-0">
-                    {getStatusBadge(signature.status)}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleViewFiles(signature)}
-                    >
-                      <Paperclip className="h-4 w-4 mr-1" />
-                      Files
-                    </Button>
-                    {signature.status === 'pending' && (
-                      <>
-                        <Button
-                          variant="success"
-                          size="sm"
-                          onClick={() => handleAction(signature, 'approve')}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleAction(signature, 'reject')}
-                        >
-                          <XCircle className="h-4 w-4 mr-1" />
-                          Reject
-                        </Button>
-                      </>
-                    )}
-                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-border">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredSignatures.length)} of {filteredSignatures.length} requests
+                  </p>
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious 
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        />
+                      </PaginationItem>
+                      {getPageNumbers().map((page, idx) => (
+                        <PaginationItem key={idx}>
+                          {page === 'ellipsis' ? (
+                            <PaginationEllipsis />
+                          ) : (
+                            <PaginationLink
+                              onClick={() => setCurrentPage(page)}
+                              isActive={currentPage === page}
+                              className="cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          )}
+                        </PaginationItem>
+                      ))}
+                      <PaginationItem>
+                        <PaginationNext 
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
