@@ -6,8 +6,19 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface Signature {
   id: string;
@@ -37,6 +48,7 @@ export default function ClearanceDetail() {
   const [clearance, setClearance] = useState<ClearanceDetail | null>(null);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (user && id) {
@@ -91,6 +103,48 @@ export default function ClearanceDetail() {
       toast.error('Failed to load clearance details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Check if clearance can be deleted (no signatures have been made)
+  const canDelete = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
+
+  const handleDelete = async () => {
+    if (!id) return;
+    
+    setDeleting(true);
+    try {
+      // Delete signatures first (due to foreign key)
+      const { error: sigError } = await supabase
+        .from('clearance_signatures')
+        .delete()
+        .eq('clearance_request_id', id);
+      
+      if (sigError) throw sigError;
+
+      // Delete files
+      const { error: filesError } = await supabase
+        .from('clearance_files')
+        .delete()
+        .eq('clearance_request_id', id);
+      
+      if (filesError) throw filesError;
+
+      // Delete the clearance request
+      const { error: clearanceError } = await supabase
+        .from('clearance_requests')
+        .delete()
+        .eq('id', id);
+      
+      if (clearanceError) throw clearanceError;
+
+      toast.success('Clearance request deleted successfully');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error deleting clearance:', error);
+      toast.error('Failed to delete clearance request');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -169,6 +223,35 @@ export default function ClearanceDetail() {
               })}
             </p>
           </div>
+          {canDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" disabled={deleting}>
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Clearance Request?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete this clearance request and all associated files. 
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
 
         {/* Description */}
