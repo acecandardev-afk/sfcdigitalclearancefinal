@@ -11,8 +11,18 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { ArrowLeft, Upload, X, Loader2, FileText, Send, Check } from 'lucide-react';
+import { ArrowLeft, Upload, X, Loader2, FileText, Send, Check, Eye, User } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 
 interface Signatory {
   id: string;
@@ -43,6 +53,8 @@ export default function NewClearance() {
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingSignatories, setLoadingSignatories] = useState(true);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [pendingData, setPendingData] = useState<ClearanceFormData | null>(null);
 
   const form = useForm<ClearanceFormData>({
     resolver: zodResolver(clearanceSchema),
@@ -94,8 +106,18 @@ export default function NewClearance() {
     form.setValue('selectedSignatories', updated, { shouldValidate: true });
   };
 
-  const onSubmit = async (data: ClearanceFormData) => {
+  // Show confirmation dialog instead of submitting directly
+  const handleReviewSubmit = async (data: ClearanceFormData) => {
+    setPendingData(data);
+    setConfirmDialogOpen(true);
+  };
+
+  const onSubmit = async () => {
+    if (!pendingData) return;
+    const data = pendingData;
+    
     setLoading(true);
+    setConfirmDialogOpen(false);
 
     try {
       // Create clearance request
@@ -165,7 +187,13 @@ export default function NewClearance() {
       toast.error('Failed to create clearance request');
     } finally {
       setLoading(false);
+      setPendingData(null);
     }
+  };
+
+  // Get selected signatory details for confirmation
+  const getSelectedSignatoryDetails = () => {
+    return signatories.filter((s) => pendingData?.selectedSignatories.includes(s.id));
   };
 
   // Group signatories by department
@@ -194,7 +222,7 @@ export default function NewClearance() {
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(handleReviewSubmit)} className="space-y-6">
             {/* Basic Info */}
             <Card className="shadow-card">
               <CardHeader>
@@ -367,14 +395,110 @@ export default function NewClearance() {
                   </>
                 ) : (
                   <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Submit Request
+                    <Eye className="h-4 w-4 mr-2" />
+                    Review & Submit
                   </>
                 )}
               </Button>
             </div>
           </form>
         </Form>
+
+        {/* Confirmation Dialog */}
+        <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-display">Confirm Submission</DialogTitle>
+              <DialogDescription>
+                Please review your clearance request before submitting
+              </DialogDescription>
+            </DialogHeader>
+            
+            <ScrollArea className="max-h-[60vh]">
+              <div className="space-y-4 pr-4">
+                {/* Title & Description */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground">Title</h4>
+                  <p className="font-medium">{pendingData?.title}</p>
+                </div>
+                
+                {pendingData?.description && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-muted-foreground">Description</h4>
+                    <p className="text-sm">{pendingData.description}</p>
+                  </div>
+                )}
+
+                <Separator />
+
+                {/* Files */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground">
+                    Attached Files ({files.length})
+                  </h4>
+                  {files.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No files attached</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {files.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-primary" />
+                          <span>{file.name}</span>
+                          <span className="text-muted-foreground">
+                            ({(file.size / 1024).toFixed(1)} KB)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Signatories */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground">
+                    Required Signatories ({getSelectedSignatoryDetails().length})
+                  </h4>
+                  <div className="space-y-2">
+                    {getSelectedSignatoryDetails().map((sig) => (
+                      <div key={sig.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+                        <div className="p-1.5 bg-primary/10 rounded-full">
+                          <User className="h-3 w-3 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{sig.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {sig.position} • {sig.department}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
+                Go Back
+              </Button>
+              <Button variant="hero" onClick={onSubmit} disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Submit Request
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
