@@ -24,6 +24,8 @@ interface Signature {
   id: string;
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   notes: string | null;
+  remarks: string | null;
+  sequence_order: number;
   signed_at: string | null;
   signatory: {
     name: string;
@@ -81,6 +83,8 @@ export default function ClearanceDetail() {
           id,
           status,
           notes,
+          remarks,
+          sequence_order,
           signed_at,
           signatories (
             name,
@@ -88,7 +92,8 @@ export default function ClearanceDetail() {
             department
           )
         `)
-        .eq('clearance_request_id', id);
+        .eq('clearance_request_id', id)
+        .order('sequence_order', { ascending: true });
 
       if (signaturesError) throw signaturesError;
 
@@ -269,10 +274,10 @@ export default function ClearanceDetail() {
         {/* Signatures */}
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle className="text-lg">Signatures</CardTitle>
+            <CardTitle className="text-lg">Signing Sequence</CardTitle>
             <CardDescription>
               {signatures.filter((s) => s.status === 'approved').length} of {signatures.length}{' '}
-              signatures collected
+              signatures collected (in order)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -280,33 +285,56 @@ export default function ClearanceDetail() {
               <p className="text-muted-foreground text-center py-4">No signatures required</p>
             ) : (
               <div className="space-y-4">
-                {signatures.map((sig) => (
-                  <div
-                    key={sig.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-border"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 bg-muted rounded-full">
-                        <User className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">{sig.signatory.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {sig.signatory.position} • {sig.signatory.department}
-                        </p>
-                        {sig.notes && (
-                          <p className="text-sm text-muted-foreground mt-1 italic">
-                            "{sig.notes}"
+                {signatures.map((sig, index) => {
+                  // Check if previous signatories have approved
+                  const previousApproved = signatures
+                    .filter((s) => s.sequence_order < sig.sequence_order)
+                    .every((s) => s.status === 'approved');
+                  const isWaiting = sig.status === 'pending' && !previousApproved;
+                  
+                  return (
+                    <div
+                      key={sig.id}
+                      className={`flex items-center justify-between p-4 rounded-lg border border-border ${
+                        isWaiting ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                          {sig.sequence_order}
+                        </div>
+                        <div className="p-2 bg-muted rounded-full">
+                          <User className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="font-semibold">{sig.signatory.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {sig.signatory.position} • {sig.signatory.department}
                           </p>
-                        )}
+                          {sig.notes && (
+                            <p className="text-sm text-muted-foreground mt-1 italic">
+                              Note: "{sig.notes}"
+                            </p>
+                          )}
+                          {sig.remarks && (
+                            <p className="text-sm text-primary mt-1">
+                              Remarks: "{sig.remarks}"
+                            </p>
+                          )}
+                          {isWaiting && (
+                            <p className="text-xs text-warning mt-1">
+                              Waiting for previous signatories
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {getStatusIcon(sig.status)}
+                        {getStatusBadge(sig.status)}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(sig.status)}
-                      {getStatusBadge(sig.status)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
