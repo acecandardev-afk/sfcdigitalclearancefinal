@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { ArrowLeft, Upload, X, Loader2, FileText, Send, Check, Eye, User } from 'lucide-react';
+import { ArrowLeft, Upload, X, Loader2, FileText, Send, Eye, User } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -23,12 +23,17 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import SignatorySelector from '@/components/clearance/SignatorySelector';
 
 interface Signatory {
   id: string;
   name: string;
   position: string;
   department: string;
+}
+
+interface SelectedSignatory extends Signatory {
+  order: number;
 }
 
 const clearanceSchema = z.object({
@@ -40,8 +45,6 @@ const clearanceSchema = z.object({
     .trim()
     .max(1000, 'Description must be less than 1000 characters')
     .optional(),
-  selectedSignatories: z.array(z.string())
-    .min(1, 'Please select at least one signatory'),
 });
 
 type ClearanceFormData = z.infer<typeof clearanceSchema>;
@@ -50,18 +53,19 @@ export default function NewClearance() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [signatories, setSignatories] = useState<Signatory[]>([]);
+  const [selectedSignatories, setSelectedSignatories] = useState<SelectedSignatory[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingSignatories, setLoadingSignatories] = useState(true);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [pendingData, setPendingData] = useState<ClearanceFormData | null>(null);
+  const [signatoryError, setSignatoryError] = useState<string | null>(null);
 
   const form = useForm<ClearanceFormData>({
     resolver: zodResolver(clearanceSchema),
     defaultValues: {
       title: '',
       description: '',
-      selectedSignatories: [],
     },
   });
 
@@ -98,16 +102,14 @@ export default function NewClearance() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const toggleSignatory = (id: string) => {
-    const current = form.getValues('selectedSignatories');
-    const updated = current.includes(id)
-      ? current.filter((s) => s !== id)
-      : [...current, id];
-    form.setValue('selectedSignatories', updated, { shouldValidate: true });
-  };
-
   // Show confirmation dialog instead of submitting directly
   const handleReviewSubmit = async (data: ClearanceFormData) => {
+    // Validate signatories manually
+    if (selectedSignatories.length === 0) {
+      setSignatoryError('Please select at least one signatory');
+      return;
+    }
+    setSignatoryError(null);
     setPendingData(data);
     setConfirmDialogOpen(true);
   };
@@ -155,11 +157,12 @@ export default function NewClearance() {
         });
       }
 
-      // Create signature requests
-      const signatureInserts = data.selectedSignatories.map((signatoryId) => ({
+      // Create signature requests with sequence order
+      const signatureInserts = selectedSignatories.map((sig) => ({
         clearance_request_id: clearanceData.id,
-        signatory_id: signatoryId,
+        signatory_id: sig.id,
         status: 'pending' as const,
+        sequence_order: sig.order,
       }));
 
       const { error: signaturesError } = await supabase
@@ -172,7 +175,7 @@ export default function NewClearance() {
       supabase.functions.invoke('notify-signatories', {
         body: {
           clearance_request_id: clearanceData.id,
-          signatory_ids: data.selectedSignatories,
+          signatory_ids: selectedSignatories.map((s) => s.id),
         },
       }).then((result) => {
         if (result.error) {
@@ -190,22 +193,6 @@ export default function NewClearance() {
       setPendingData(null);
     }
   };
-
-  // Get selected signatory details for confirmation
-  const getSelectedSignatoryDetails = () => {
-    return signatories.filter((s) => pendingData?.selectedSignatories.includes(s.id));
-  };
-
-  // Group signatories by department
-  const groupedSignatories = signatories.reduce((acc, sig) => {
-    if (!acc[sig.department]) {
-      acc[sig.department] = [];
-    }
-    acc[sig.department].push(sig);
-    return acc;
-  }, {} as Record<string, Signatory[]>);
-
-  const selectedSignatories = form.watch('selectedSignatories');
 
   return (
     <DashboardLayout>
@@ -323,62 +310,34 @@ export default function NewClearance() {
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="font-display text-lg">Required Signatories *</CardTitle>
-                <CardDescription>Select the signatories who need to approve your clearance</CardDescription>
+                <CardDescription>
+                  Select the signatories who need to approve your clearance. They will sign in the order you set.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <FormField
-                  control={form.control}
-                  name="selectedSignatories"
-                  render={() => (
-                    <FormItem>
-                      {loadingSignatories ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                        </div>
-                      ) : signatories.length === 0 ? (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground">No signatories available</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {Object.entries(groupedSignatories).map(([department, sigs]) => (
-                            <div key={department}>
-                              <h4 className="text-sm font-semibold text-muted-foreground mb-3">
-                                {department}
-                              </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {sigs.map((sig) => (
-                                  <div
-                                    key={sig.id}
-                                    className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                      selectedSignatories.includes(sig.id)
-                                        ? 'border-primary bg-primary/5'
-                                        : 'border-border hover:border-primary/30'
-                                    }`}
-                                    onClick={() => toggleSignatory(sig.id)}
-                                  >
-                                    <div className={`h-4 w-4 shrink-0 rounded-sm border border-primary ring-offset-background flex items-center justify-center ${
-                                      selectedSignatories.includes(sig.id) ? 'bg-primary text-primary-foreground' : ''
-                                    }`}>
-                                      {selectedSignatories.includes(sig.id) && (
-                                        <Check className="h-3 w-3" />
-                                      )}
-                                    </div>
-                                    <div>
-                                      <p className="font-medium">{sig.name}</p>
-                                      <p className="text-sm text-muted-foreground">{sig.position}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {loadingSignatories ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : signatories.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">No signatories available</p>
+                  </div>
+                ) : (
+                  <SignatorySelector
+                    signatories={signatories}
+                    selectedSignatories={selectedSignatories}
+                    onSelectionChange={(selected) => {
+                      setSelectedSignatories(selected);
+                      if (selected.length > 0) {
+                        setSignatoryError(null);
+                      }
+                    }}
+                  />
+                )}
+                {signatoryError && (
+                  <p className="text-sm font-medium text-destructive mt-2">{signatoryError}</p>
+                )}
               </CardContent>
             </Card>
 
@@ -455,14 +414,17 @@ export default function NewClearance() {
 
                 <Separator />
 
-                {/* Signatories */}
+                {/* Signatories with sequence */}
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-muted-foreground">
-                    Required Signatories ({getSelectedSignatoryDetails().length})
+                    Signing Sequence ({selectedSignatories.length} signatories)
                   </h4>
                   <div className="space-y-2">
-                    {getSelectedSignatoryDetails().map((sig) => (
+                    {selectedSignatories.map((sig) => (
                       <div key={sig.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                          {sig.order}
+                        </div>
                         <div className="p-1.5 bg-primary/10 rounded-full">
                           <User className="h-3 w-3 text-primary" />
                         </div>
@@ -475,6 +437,9 @@ export default function NewClearance() {
                       </div>
                     ))}
                   </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Each signatory can only sign after the previous one has approved.
+                  </p>
                 </div>
               </div>
             </ScrollArea>

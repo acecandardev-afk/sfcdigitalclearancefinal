@@ -115,6 +115,8 @@ export type Database = {
           created_at: string | null
           id: string
           notes: string | null
+          remarks: string | null
+          sequence_order: number
           signatory_id: string
           signed_at: string | null
           status: Database["public"]["Enums"]["clearance_status"] | null
@@ -124,6 +126,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           notes?: string | null
+          remarks?: string | null
+          sequence_order?: number
           signatory_id: string
           signed_at?: string | null
           status?: Database["public"]["Enums"]["clearance_status"] | null
@@ -133,6 +137,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           notes?: string | null
+          remarks?: string | null
+          sequence_order?: number
           signatory_id?: string
           signed_at?: string | null
           status?: Database["public"]["Enums"]["clearance_status"] | null

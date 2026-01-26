@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown, Lock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -40,6 +40,8 @@ interface PendingSignature {
   id: string;
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   notes: string | null;
+  remarks: string | null;
+  sequence_order: number;
   created_at: string;
   clearance_request: {
     id: string;
@@ -53,6 +55,14 @@ interface PendingSignature {
       year_level: string | null;
     };
   };
+  canSign?: boolean; // computed field
+}
+
+interface AllSignature {
+  id: string;
+  status: 'pending' | 'in_progress' | 'approved' | 'rejected';
+  sequence_order: number;
+  clearance_request_id: string;
 }
 
 export default function SignatoryDashboard() {
@@ -62,6 +72,7 @@ export default function SignatoryDashboard() {
   const [selectedSignature, setSelectedSignature] = useState<PendingSignature | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [notes, setNotes] = useState('');
+  const [remarks, setRemarks] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
@@ -121,7 +132,44 @@ export default function SignatoryDashboard() {
 
       if (error) throw error;
 
-      setSignatures(data as unknown as PendingSignature[]);
+      // Get all signatures for these clearance requests to check sequence
+      const clearanceIds = [...new Set((data || []).map((s: any) => s.clearance_request?.id).filter(Boolean))];
+      
+      let allSignaturesMap: Record<string, AllSignature[]> = {};
+      
+      if (clearanceIds.length > 0) {
+        const { data: allSigs } = await supabase
+          .from('clearance_signatures')
+          .select('id, status, sequence_order, clearance_request_id')
+          .in('clearance_request_id', clearanceIds);
+        
+        // Group by clearance_request_id
+        (allSigs || []).forEach((sig: AllSignature) => {
+          if (!allSignaturesMap[sig.clearance_request_id]) {
+            allSignaturesMap[sig.clearance_request_id] = [];
+          }
+          allSignaturesMap[sig.clearance_request_id].push(sig);
+        });
+      }
+
+      // Compute canSign for each signature
+      const processedSignatures = (data || []).map((sig: any) => {
+        const clearanceId = sig.clearance_request?.id;
+        const allSigsForRequest = allSignaturesMap[clearanceId] || [];
+        
+        // Check if all previous signatures (lower sequence_order) are approved
+        const previousSigs = allSigsForRequest.filter(
+          (s) => s.sequence_order < sig.sequence_order
+        );
+        const allPreviousApproved = previousSigs.every((s) => s.status === 'approved');
+        
+        return {
+          ...sig,
+          canSign: sig.status === 'pending' && allPreviousApproved,
+        };
+      });
+
+      setSignatures(processedSignatures as PendingSignature[]);
     } catch (error) {
       console.error('Error fetching signatures:', error);
       toast.error('Failed to load pending signatures');
@@ -134,6 +182,7 @@ export default function SignatoryDashboard() {
     setSelectedSignature(signature);
     setActionType(type);
     setNotes('');
+    setRemarks('');
     setDialogOpen(true);
   };
 
@@ -152,6 +201,7 @@ export default function SignatoryDashboard() {
         .update({
           status: actionType === 'approve' ? 'approved' : 'rejected',
           notes: notes || null,
+          remarks: remarks || null,
           signed_at: new Date().toISOString(),
         })
         .eq('id', selectedSignature.id);
@@ -219,19 +269,20 @@ export default function SignatoryDashboard() {
   const paginatedSignatures = sortedSignatures.slice(startIndex, endIndex);
 
   // Bulk action helpers (must be after paginatedSignatures is defined)
-  const pendingSignaturesOnPage = paginatedSignatures.filter(s => s.status === 'pending');
-  const allPendingSelected = pendingSignaturesOnPage.length > 0 && 
-    pendingSignaturesOnPage.every(s => selectedIds.has(s.id));
-  const somePendingSelected = pendingSignaturesOnPage.some(s => selectedIds.has(s.id));
+  // Only allow bulk actions on signatures that can sign (previous are approved)
+  const signableSignaturesOnPage = paginatedSignatures.filter(s => s.status === 'pending' && s.canSign);
+  const allSignableSelected = signableSignaturesOnPage.length > 0 && 
+    signableSignaturesOnPage.every(s => selectedIds.has(s.id));
+  const someSignableSelected = signableSignaturesOnPage.some(s => selectedIds.has(s.id));
 
   const toggleSelectAll = () => {
-    if (allPendingSelected) {
+    if (allSignableSelected) {
       const newSelected = new Set(selectedIds);
-      pendingSignaturesOnPage.forEach(s => newSelected.delete(s.id));
+      signableSignaturesOnPage.forEach(s => newSelected.delete(s.id));
       setSelectedIds(newSelected);
     } else {
       const newSelected = new Set(selectedIds);
-      pendingSignaturesOnPage.forEach(s => newSelected.add(s.id));
+      signableSignaturesOnPage.forEach(s => newSelected.add(s.id));
       setSelectedIds(newSelected);
     }
   };
@@ -429,16 +480,16 @@ export default function SignatoryDashboard() {
           ) : (
             <>
               {/* Bulk Actions Bar */}
-              {pendingSignaturesOnPage.length > 0 && (
+              {signableSignaturesOnPage.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id="select-all"
-                      checked={allPendingSelected}
+                      checked={allSignableSelected}
                       onCheckedChange={toggleSelectAll}
                     />
                     <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
-                      Select all pending ({pendingSignaturesOnPage.length})
+                      Select all signable ({signableSignaturesOnPage.length})
                     </label>
                   </div>
                   {selectedIds.size > 0 && (
@@ -470,19 +521,26 @@ export default function SignatoryDashboard() {
                 {paginatedSignatures.map((signature, index) => (
                   <div
                     key={signature.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4"
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4 ${
+                      signature.status === 'pending' && !signature.canSign ? 'opacity-60' : ''
+                    }`}
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
                     <div className="flex items-start gap-4">
-                      {signature.status === 'pending' && (
+                      {signature.status === 'pending' && signature.canSign && (
                         <Checkbox
                           checked={selectedIds.has(signature.id)}
                           onCheckedChange={() => toggleSelectOne(signature.id)}
                           className="mt-1"
                         />
                       )}
-                      <div className="p-2 bg-primary/10 rounded-lg">
-                        <FileText className="h-5 w-5 text-primary" />
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-muted text-muted-foreground text-xs font-bold">
+                          {signature.sequence_order}
+                        </div>
+                        <div className="p-2 bg-primary/10 rounded-lg">
+                          <FileText className="h-5 w-5 text-primary" />
+                        </div>
                       </div>
                       <div>
                         <h4 className="font-semibold">{signature.clearance_request.title}</h4>
@@ -495,6 +553,17 @@ export default function SignatoryDashboard() {
                         <p className="text-xs text-muted-foreground mt-1">
                           {signature.clearance_request.profiles.course} • {signature.clearance_request.profiles.year_level}
                         </p>
+                        {signature.status === 'pending' && !signature.canSign && (
+                          <p className="text-xs text-warning mt-1 flex items-center gap-1">
+                            <Lock className="h-3 w-3" />
+                            Waiting for previous signatories to approve
+                          </p>
+                        )}
+                        {signature.remarks && (
+                          <p className="text-xs text-muted-foreground mt-1 italic">
+                            Remarks: "{signature.remarks}"
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 ml-12 sm:ml-0">
@@ -507,7 +576,7 @@ export default function SignatoryDashboard() {
                         <Paperclip className="h-4 w-4 mr-1" />
                         Files
                       </Button>
-                      {signature.status === 'pending' && (
+                      {signature.status === 'pending' && signature.canSign && (
                         <>
                           <Button
                             variant="success"
@@ -601,6 +670,17 @@ export default function SignatoryDashboard() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Remarks (optional)</Label>
+              <Textarea
+                placeholder="Add any remarks that will be visible on the clearance..."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Remarks will be displayed on the student's clearance record.
+              </p>
             </div>
           </div>
           <DialogFooter>
