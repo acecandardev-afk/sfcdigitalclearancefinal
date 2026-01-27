@@ -5,8 +5,9 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2, Filter } from 'lucide-react';
 import { toast } from 'sonner';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
 
 interface SignatureInfo {
@@ -30,11 +31,14 @@ interface ClearanceRequest {
   clearance_signatures?: SignatureInfo[];
 }
 
+type StatusFilter = 'all' | 'pending' | 'in_progress' | 'approved' | 'rejected';
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [clearances, setClearances] = useState<ClearanceRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -139,6 +143,11 @@ export default function StudentDashboard() {
     </Card>
   );
 
+  const filteredClearances = clearances.filter((c) => {
+    if (statusFilter === 'all') return true;
+    return c.status === statusFilter;
+  });
+
   return (
     <div className="p-6 space-y-8">
       {/* Header */}
@@ -185,36 +194,55 @@ export default function StudentDashboard() {
         />
       </div>
 
-      {/* Recent Clearances */}
+      {/* Clearances with Filter */}
       <Card className="shadow-card">
         <CardHeader>
-          <CardTitle className="font-display">Recent Clearances</CardTitle>
-          <CardDescription>Your latest clearance requests and their status</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="font-display">Clearances</CardTitle>
+              <CardDescription>Your clearance requests and their status</CardDescription>
+            </div>
+            <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="pending">Pending</TabsTrigger>
+                <TabsTrigger value="in_progress">In Progress</TabsTrigger>
+                <TabsTrigger value="approved">Approved</TabsTrigger>
+                <TabsTrigger value="rejected">Rejected</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : clearances.length === 0 ? (
+          ) : filteredClearances.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-semibold">No clearances yet</h3>
+              <h3 className="mt-4 text-lg font-semibold">
+                {clearances.length === 0 ? 'No clearances yet' : 'No matching clearances'}
+              </h3>
               <p className="text-muted-foreground mt-2">
-                Create your first clearance request to get started
+                {clearances.length === 0
+                  ? 'Create your first clearance request to get started'
+                  : `No clearances with "${statusFilter.replace('_', ' ')}" status`}
               </p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => navigate('/dashboard/clearances/new')}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Clearance
-              </Button>
+              {clearances.length === 0 && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => navigate('/dashboard/clearances/new')}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Clearance
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
-              {clearances.slice(0, 5).map((clearance, index) => {
+              {filteredClearances.map((clearance, index) => {
                 const signatureSteps = (clearance.clearance_signatures || []).map((sig) => ({
                   id: sig.id,
                   status: sig.status,
