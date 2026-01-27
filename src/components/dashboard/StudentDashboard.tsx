@@ -7,6 +7,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
+
+interface SignatureInfo {
+  id: string;
+  status: 'pending' | 'in_progress' | 'approved' | 'rejected';
+  sequence_order: number;
+  signatories: {
+    name: string;
+    department: string;
+  };
+}
 
 interface ClearanceRequest {
   id: string;
@@ -16,6 +27,7 @@ interface ClearanceRequest {
   created_at: string;
   signatures_count?: number;
   approved_count?: number;
+  clearance_signatures?: SignatureInfo[];
 }
 
 export default function StudentDashboard() {
@@ -43,18 +55,25 @@ export default function StudentDashboard() {
         .from('clearance_requests')
         .select(`
           *,
-          clearance_signatures(id, status)
+          clearance_signatures(id, status, sequence_order, signatories(name, department))
         `)
         .eq('student_id', user?.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      const processedData = data.map((item) => ({
-        ...item,
-        signatures_count: item.clearance_signatures?.length || 0,
-        approved_count: item.clearance_signatures?.filter((s: { status: string }) => s.status === 'approved').length || 0,
-      }));
+      const processedData = data.map((item) => {
+        // Sort signatures by sequence_order
+        const sortedSignatures = [...(item.clearance_signatures || [])].sort(
+          (a, b) => a.sequence_order - b.sequence_order
+        );
+        return {
+          ...item,
+          clearance_signatures: sortedSignatures,
+          signatures_count: item.clearance_signatures?.length || 0,
+          approved_count: item.clearance_signatures?.filter((s: { status: string }) => s.status === 'approved').length || 0,
+        };
+      });
 
       setClearances(processedData);
 
@@ -195,36 +214,50 @@ export default function StudentDashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {clearances.slice(0, 5).map((clearance, index) => (
-                <div
-                  key={clearance.id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer animate-slide-up"
-                  style={{ animationDelay: `${index * 0.05}s` }}
-                  onClick={() => navigate(`/dashboard/clearances/${clearance.id}`)}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <FileText className="h-5 w-5 text-primary" />
+              {clearances.slice(0, 5).map((clearance, index) => {
+                const signatureSteps = (clearance.clearance_signatures || []).map((sig) => ({
+                  id: sig.id,
+                  status: sig.status,
+                  sequence_order: sig.sequence_order,
+                  signatory: {
+                    name: sig.signatories?.name || 'Unknown',
+                    department: sig.signatories?.department || '',
+                  },
+                }));
+
+                return (
+                  <div
+                    key={clearance.id}
+                    className="p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer animate-slide-up"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                    onClick={() => navigate(`/dashboard/clearances/${clearance.id}`)}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 bg-primary/10 rounded-lg">
+                          <FileText className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold">{clearance.title}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(clearance.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      {getStatusBadge(clearance.status)}
                     </div>
-                    <div>
-                      <h4 className="font-semibold">{clearance.title}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(clearance.created_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                        {clearance.signatures_count > 0 && (
-                          <span className="ml-2">
-                            • {clearance.approved_count}/{clearance.signatures_count} signatures
-                          </span>
-                        )}
-                      </p>
-                    </div>
+                    {signatureSteps.length > 0 && (
+                      <div className="ml-14">
+                        <ClearanceProgressTimeline signatures={signatureSteps} compact />
+                      </div>
+                    )}
                   </div>
-                  {getStatusBadge(clearance.status)}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

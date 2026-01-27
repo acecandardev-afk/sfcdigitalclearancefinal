@@ -6,7 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2, Pencil, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -19,9 +19,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
+import SignatorySelector from '@/components/clearance/SignatorySelector';
+
+interface Signatory {
+  id: string;
+  name: string;
+  position: string;
+  department: string;
+}
+
+interface SelectedSignatory extends Signatory {
+  order: number;
+}
 
 interface Signature {
   id: string;
+  signatory_id: string;
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   notes: string | null;
   remarks: string | null;
@@ -51,6 +65,12 @@ export default function ClearanceDetail() {
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  
+  // Edit mode state
+  const [isEditingSequence, setIsEditingSequence] = useState(false);
+  const [availableSignatories, setAvailableSignatories] = useState<Signatory[]>([]);
+  const [editedSignatories, setEditedSignatories] = useState<SelectedSignatory[]>([]);
+  const [savingSequence, setSavingSequence] = useState(false);
 
   useEffect(() => {
     if (user && id) {
@@ -81,12 +101,14 @@ export default function ClearanceDetail() {
         .from('clearance_signatures')
         .select(`
           id,
+          signatory_id,
           status,
           notes,
           remarks,
           sequence_order,
           signed_at,
           signatories (
+            id,
             name,
             position,
             department
@@ -111,8 +133,85 @@ export default function ClearanceDetail() {
     }
   };
 
+  // Check if clearance can be edited (no signatures have been made yet)
+  const canEditSequence = signatures.length > 0 && signatures.every((s) => s.status === 'pending');
+
   // Check if clearance can be deleted (no signatures have been made)
   const canDelete = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
+
+  // Start editing sequence
+  const startEditingSequence = async () => {
+    try {
+      // Fetch all available signatories
+      const { data, error } = await supabase
+        .from('signatories')
+        .select('id, name, position, department')
+        .eq('is_active', true)
+        .order('department');
+
+      if (error) throw error;
+      setAvailableSignatories(data || []);
+
+      // Convert current signatures to editable format
+      const currentSelected: SelectedSignatory[] = signatures.map((sig) => ({
+        id: sig.signatory_id,
+        name: sig.signatory.name,
+        position: sig.signatory.position,
+        department: sig.signatory.department,
+        order: sig.sequence_order,
+      }));
+      setEditedSignatories(currentSelected);
+      setIsEditingSequence(true);
+    } catch (error) {
+      console.error('Error fetching signatories:', error);
+      toast.error('Failed to load signatories');
+    }
+  };
+
+  // Cancel editing
+  const cancelEditingSequence = () => {
+    setIsEditingSequence(false);
+    setEditedSignatories([]);
+  };
+
+  // Save new sequence
+  const saveSequence = async () => {
+    if (!id || editedSignatories.length === 0) return;
+
+    setSavingSequence(true);
+    try {
+      // Delete existing signatures
+      const { error: deleteError } = await supabase
+        .from('clearance_signatures')
+        .delete()
+        .eq('clearance_request_id', id);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new signatures with updated order
+      const signatureInserts = editedSignatories.map((sig) => ({
+        clearance_request_id: id,
+        signatory_id: sig.id,
+        status: 'pending' as const,
+        sequence_order: sig.order,
+      }));
+
+      const { error: insertError } = await supabase
+        .from('clearance_signatures')
+        .insert(signatureInserts);
+
+      if (insertError) throw insertError;
+
+      toast.success('Signing sequence updated successfully');
+      setIsEditingSequence(false);
+      fetchClearanceDetail(); // Refresh data
+    } catch (error) {
+      console.error('Error updating sequence:', error);
+      toast.error('Failed to update signing sequence');
+    } finally {
+      setSavingSequence(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!id) return;
@@ -274,67 +373,120 @@ export default function ClearanceDetail() {
         {/* Signatures */}
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle className="text-lg">Signing Sequence</CardTitle>
-            <CardDescription>
-              {signatures.filter((s) => s.status === 'approved').length} of {signatures.length}{' '}
-              signatures collected (in order)
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">Signing Sequence</CardTitle>
+                <CardDescription>
+                  {signatures.filter((s) => s.status === 'approved').length} of {signatures.length}{' '}
+                  signatures collected (in order)
+                </CardDescription>
+              </div>
+              {canEditSequence && !isEditingSequence && (
+                <Button variant="outline" size="sm" onClick={startEditingSequence}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit Sequence
+                </Button>
+              )}
+              {isEditingSequence && (
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" onClick={cancelEditingSequence} disabled={savingSequence}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button variant="hero" size="sm" onClick={saveSequence} disabled={savingSequence}>
+                    {savingSequence ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {signatures.length === 0 ? (
+            {isEditingSequence ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Drag or use arrows to reorder signatories. You can also add or remove signatories.
+                </p>
+                <SignatorySelector
+                  signatories={availableSignatories}
+                  selectedSignatories={editedSignatories}
+                  onSelectionChange={setEditedSignatories}
+                />
+              </div>
+            ) : signatures.length === 0 ? (
               <p className="text-muted-foreground text-center py-4">No signatures required</p>
             ) : (
-              <div className="space-y-4">
-                {signatures.map((sig, index) => {
-                  // Check if previous signatories have approved
-                  const previousApproved = signatures
-                    .filter((s) => s.sequence_order < sig.sequence_order)
-                    .every((s) => s.status === 'approved');
-                  const isWaiting = sig.status === 'pending' && !previousApproved;
-                  
-                  return (
-                    <div
-                      key={sig.id}
-                      className={`flex items-center justify-between p-4 rounded-lg border border-border ${
-                        isWaiting ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground text-sm font-bold">
-                          {sig.sequence_order}
+              <div className="space-y-6">
+                {/* Progress Timeline */}
+                <ClearanceProgressTimeline
+                  signatures={signatures.map((sig) => ({
+                    id: sig.id,
+                    status: sig.status,
+                    sequence_order: sig.sequence_order,
+                    signatory: {
+                      name: sig.signatory.name,
+                      department: sig.signatory.department,
+                    },
+                  }))}
+                />
+
+                {/* Detailed list */}
+                <div className="space-y-4 pt-4 border-t border-border">
+                  {signatures.map((sig, index) => {
+                    // Check if previous signatories have approved
+                    const previousApproved = signatures
+                      .filter((s) => s.sequence_order < sig.sequence_order)
+                      .every((s) => s.status === 'approved');
+                    const isWaiting = sig.status === 'pending' && !previousApproved;
+                    
+                    return (
+                      <div
+                        key={sig.id}
+                        className={`flex items-center justify-between p-4 rounded-lg border border-border ${
+                          isWaiting ? 'opacity-60' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                            {sig.sequence_order}
+                          </div>
+                          <div className="p-2 bg-muted rounded-full">
+                            <User className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="font-semibold">{sig.signatory.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {sig.signatory.position} • {sig.signatory.department}
+                            </p>
+                            {sig.notes && (
+                              <p className="text-sm text-muted-foreground mt-1 italic">
+                                Note: "{sig.notes}"
+                              </p>
+                            )}
+                            {sig.remarks && (
+                              <p className="text-sm text-primary mt-1">
+                                Remarks: "{sig.remarks}"
+                              </p>
+                            )}
+                            {isWaiting && (
+                              <p className="text-xs text-warning mt-1">
+                                Waiting for previous signatories
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="p-2 bg-muted rounded-full">
-                          <User className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">{sig.signatory.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {sig.signatory.position} • {sig.signatory.department}
-                          </p>
-                          {sig.notes && (
-                            <p className="text-sm text-muted-foreground mt-1 italic">
-                              Note: "{sig.notes}"
-                            </p>
-                          )}
-                          {sig.remarks && (
-                            <p className="text-sm text-primary mt-1">
-                              Remarks: "{sig.remarks}"
-                            </p>
-                          )}
-                          {isWaiting && (
-                            <p className="text-xs text-warning mt-1">
-                              Waiting for previous signatories
-                            </p>
-                          )}
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(sig.status)}
+                          {getStatusBadge(sig.status)}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {getStatusIcon(sig.status)}
-                        {getStatusBadge(sig.status)}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
           </CardContent>
