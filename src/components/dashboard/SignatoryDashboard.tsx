@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown, Lock } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown, Lock, Eye } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -66,6 +67,7 @@ interface AllSignature {
 }
 
 export default function SignatoryDashboard() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [signatures, setSignatures] = useState<PendingSignature[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,12 +121,7 @@ export default function SignatoryDashboard() {
             title,
             description,
             created_at,
-            profiles:student_id(
-              full_name,
-              student_id,
-              course,
-              year_level
-            )
+            student_id
           )
         `)
         .eq('signatory_id', signatoryData.id)
@@ -132,8 +129,22 @@ export default function SignatoryDashboard() {
 
       if (error) throw error;
 
-      // Get all signatures for these clearance requests to check sequence
+      // Get all student IDs and clearance IDs
+      const studentIds = [...new Set((data || []).map((s: any) => s.clearance_request?.student_id).filter(Boolean))];
       const clearanceIds = [...new Set((data || []).map((s: any) => s.clearance_request?.id).filter(Boolean))];
+      
+      // Fetch profiles for these students
+      let profilesMap: Record<string, any> = {};
+      if (studentIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, student_id, course, year_level')
+          .in('id', studentIds);
+        
+        (profiles || []).forEach((p: any) => {
+          profilesMap[p.id] = p;
+        });
+      }
       
       let allSignaturesMap: Record<string, AllSignature[]> = {};
       
@@ -152,9 +163,10 @@ export default function SignatoryDashboard() {
         });
       }
 
-      // Compute canSign for each signature
+      // Compute canSign for each signature and attach profile
       const processedSignatures = (data || []).map((sig: any) => {
         const clearanceId = sig.clearance_request?.id;
+        const studentId = sig.clearance_request?.student_id;
         const allSigsForRequest = allSignaturesMap[clearanceId] || [];
         
         // Check if all previous signatures (lower sequence_order) are approved
@@ -165,6 +177,15 @@ export default function SignatoryDashboard() {
         
         return {
           ...sig,
+          clearance_request: {
+            ...sig.clearance_request,
+            profiles: profilesMap[studentId] || {
+              full_name: 'Unknown',
+              student_id: null,
+              course: null,
+              year_level: null,
+            },
+          },
           canSign: sig.status === 'pending' && allPreviousApproved,
         };
       });
@@ -568,6 +589,14 @@ export default function SignatoryDashboard() {
                     </div>
                     <div className="flex items-center gap-3 ml-12 sm:ml-0">
                       {getStatusBadge(signature.status)}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/dashboard/requests/${signature.clearance_request.id}`)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"

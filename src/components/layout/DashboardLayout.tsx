@@ -17,6 +17,7 @@ import {
   ChevronRight,
   User,
   Bell,
+  CheckCircle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import NotificationBell from '@/components/notifications/NotificationBell';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -52,6 +54,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/dashboard/clearances', label: 'My Clearances', icon: FileText },
     ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'Pending Requests', icon: Bell }] : []),
+    ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Approved', icon: CheckCircle }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/settings', label: 'Settings', icon: Settings }] : []),
   ];
@@ -75,6 +78,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Link>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
