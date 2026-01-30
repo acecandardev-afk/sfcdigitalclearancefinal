@@ -80,7 +80,7 @@ serve(async (req) => {
     }
 
     // Create the auth user
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -94,28 +94,44 @@ serve(async (req) => {
       });
     }
 
+    const newUserId = createData?.user?.id;
+    if (!newUserId) {
+      return new Response(JSON.stringify({ error: "Account was created but user id was not returned" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Update signatory with user_id
     const { error: updateError } = await supabaseAdmin
       .from("signatories")
-      .update({ user_id: newUser.user.id })
+      .update({ user_id: newUserId })
       .eq("id", signatory_id);
 
     if (updateError) {
-      // Rollback: delete the created user
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      await supabaseAdmin.auth.admin.deleteUser(newUserId);
       return new Response(JSON.stringify({ error: "Failed to link account to signatory" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Update user_roles to set signatory role (the trigger already adds 'student', we need to change it)
-    await supabaseAdmin
+    // Replace default 'student' role with 'signatory' (trigger inserts student on auth user create)
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", newUserId);
+    const { error: insertRoleError } = await supabaseAdmin
       .from("user_roles")
-      .update({ role: "signatory" })
-      .eq("user_id", newUser.user.id);
+      .insert({ user_id: newUserId, role: "signatory" });
 
-    return new Response(JSON.stringify({ success: true, user_id: newUser.user.id }), {
+    if (insertRoleError) {
+      await supabaseAdmin.from("signatories").update({ user_id: null }).eq("id", signatory_id);
+      await supabaseAdmin.auth.admin.deleteUser(newUserId);
+      return new Response(JSON.stringify({ error: "Failed to assign signatory role" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true, user_id: newUserId }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

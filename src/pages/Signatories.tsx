@@ -203,6 +203,20 @@ export default function Signatories() {
     if (!selectedSignatory) return;
 
     try {
+      // If signatory had a login account, revoke their access so they can no longer sign in as signatory
+      if (selectedSignatory.user_id) {
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .delete()
+          .eq('user_id', selectedSignatory.user_id)
+          .eq('role', 'signatory');
+
+        if (roleError) {
+          console.error('Error revoking signatory role:', roleError);
+          toast.error('Failed to revoke access. Signatory record will still be removed.');
+        }
+      }
+
       const { error } = await supabase
         .from('signatories')
         .delete()

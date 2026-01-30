@@ -16,6 +16,3 @@ export default defineConfig(({ mode }) => ({
     },
   },
 }));
-
-
-//I used lovable's libray temporarily for testing purposes.

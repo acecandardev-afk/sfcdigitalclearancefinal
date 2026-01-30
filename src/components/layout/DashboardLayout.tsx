@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -38,8 +38,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const { isSuperAdmin, isSignatory } = useUserRole();
+  const { isSuperAdmin, isSignatory, isStudent, loading: roleLoading } = useUserRole();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Redirect users with no roles (e.g. removed signatory) to dashboard where they see "No access"
+  useEffect(() => {
+    if (!roleLoading && user && !isSuperAdmin() && !isSignatory() && !isStudent()) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [roleLoading, user, isSuperAdmin, isSignatory, isStudent, navigate]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -52,7 +59,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/dashboard/clearances', label: 'My Clearances', icon: FileText },
+    ...(!isSuperAdmin() ? [{ path: '/dashboard/clearances', label: 'My Clearances', icon: FileText }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'Pending Requests', icon: Bell }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Approved', icon: CheckCircle }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
