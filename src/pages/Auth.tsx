@@ -204,29 +204,24 @@ export default function Auth() {
                           <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="1st Year">1st Year</SelectItem>
-                          <SelectItem value="2nd Year">2nd Year</SelectItem>
-                          <SelectItem value="3rd Year">3rd Year</SelectItem>
                           <SelectItem value="4th Year">4th Year</SelectItem>
-                          <SelectItem value="5th Year">5th Year</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="course">Course</Label>
+                      <Label htmlFor="department">Department</Label>
                       <Select value={course} onValueChange={setCourse}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="BSIT">BSIT</SelectItem>
-                          <SelectItem value="BSCS">BSCS</SelectItem>
-                          <SelectItem value="BSIS">BSIS</SelectItem>
-                          <SelectItem value="BSA">BSA</SelectItem>
-                          <SelectItem value="BSBA">BSBA</SelectItem>
-                          <SelectItem value="BSEd">BSEd</SelectItem>
-                          <SelectItem value="BSEE">BSEE</SelectItem>
-                          <SelectItem value="BSME">BSME</SelectItem>
+                          <SelectItem value="College of Computer Studies">College of Computer Studies</SelectItem>
+                          <SelectItem value="College of Business Administration">College of Business Administration</SelectItem>
+                          <SelectItem value="College of Education">College of Education</SelectItem>
+                          <SelectItem value="College of Engineering">College of Engineering</SelectItem>
+                          <SelectItem value="College of Arts and Sciences">College of Arts and Sciences</SelectItem>
+                          <SelectItem value="College of Nursing">College of Nursing</SelectItem>
+                          <SelectItem value="College of Accountancy">College of Accountancy</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

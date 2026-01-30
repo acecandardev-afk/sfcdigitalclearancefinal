@@ -322,7 +322,7 @@ export default function SignatoryClearanceDetail() {
             <CardTitle className="text-lg">Student Information</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Full Name</p>
                 <p className="font-medium">{clearance.student.full_name}</p>
@@ -332,7 +332,11 @@ export default function SignatoryClearanceDetail() {
                 <p className="font-medium">{clearance.student.student_id || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Course</p>
+                <p className="text-sm text-muted-foreground">Email</p>
+                <p className="font-medium">{clearance.student.email || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Department</p>
                 <p className="font-medium">{clearance.student.course || 'N/A'}</p>
               </div>
               <div>
