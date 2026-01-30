@@ -74,7 +74,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Button>
             <Link to="/dashboard" className="flex items-center gap-2">
               <FileCheck className="h-6 w-6 text-primary" />
-              <span className="font-display font-bold text-lg">SFC-G DCS</span>
+              <span className="font-display font-bold text-lg">Saint Francis College - Guihulngan Digital Clearance System</span>
             </Link>
           </div>
           <div className="flex items-center gap-2">
