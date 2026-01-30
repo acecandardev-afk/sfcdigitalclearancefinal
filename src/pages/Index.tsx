@@ -63,7 +63,7 @@ export default function Index() {
             </div>
 
             <h1 className="text-5xl md:text-7xl font-display font-bold mb-6 animate-slide-up">
-              Saint Francis College - Guihulngan 
+              Saint Francis College - Guihulngan City
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/80 mb-4 animate-slide-up" style={{ animationDelay: '0.1s' }}>
               Digital Clearance System
@@ -140,7 +140,7 @@ export default function Index() {
         <div className="container mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
-              Simple Steps to Clearance
+              Simple Steps to have your clearance signed
             </h2>
           </div>
 
