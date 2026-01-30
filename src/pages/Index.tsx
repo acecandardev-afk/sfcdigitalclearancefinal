@@ -63,13 +63,13 @@ export default function Index() {
             </div>
 
             <h1 className="text-5xl md:text-7xl font-display font-bold mb-6 animate-slide-up">
-              SFC-G DCS
+              Saint Francis College - Guihulngan City
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/80 mb-4 animate-slide-up" style={{ animationDelay: '0.1s' }}>
               Digital Clearance System
             </p>
             <p className="text-lg text-primary-foreground/70 max-w-2xl mx-auto mb-12 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-              Streamline your academic clearance process. Submit documents, select signatories, and track your clearance status — all in one place.
+              Streamlines your academic clearance process. Submit documents, select signatories, and track your clearance status — all in one place.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-slide-up" style={{ animationDelay: '0.3s' }}>
@@ -140,7 +140,7 @@ export default function Index() {
         <div className="container mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
-              Simple Steps to Clearance
+              Simple Steps to have your clearance signed
             </h2>
           </div>
 
