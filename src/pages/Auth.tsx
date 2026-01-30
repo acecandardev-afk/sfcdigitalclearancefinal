@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { FileCheck, GraduationCap, Shield, Users } from 'lucide-react';
+import { FileCheck, GraduationCap, Shield, Users, Sparkles } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Auth() {
@@ -75,50 +75,66 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-hero flex relative">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-pink-50 to-blue-50 dark:from-slate-900 dark:via-purple-900 dark:to-slate-900 flex relative overflow-hidden">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-300 dark:bg-purple-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob"></div>
+        <div className="absolute top-40 right-10 w-72 h-72 bg-pink-300 dark:bg-pink-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-blue-300 dark:bg-blue-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+      </div>
+
       {/* Theme Toggle */}
       <div className="absolute top-4 right-4 z-50">
         <ThemeToggle />
       </div>
+
       {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 text-primary-foreground">
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 text-slate-800 dark:text-white relative z-10">
         <div className="max-w-md animate-fade-in">
           <div className="flex items-center gap-3 mb-8">
-            <div className="p-3 bg-primary-foreground/10 rounded-xl backdrop-blur-sm">
-              <FileCheck className="h-10 w-10" />
+            <div className="p-3 bg-gradient-to-br from-violet-400 to-purple-600 dark:from-violet-500 dark:to-purple-700 rounded-2xl shadow-lg backdrop-blur-sm transform hover:scale-105 transition-transform">
+              <FileCheck className="h-10 w-10 text-white" />
             </div>
-            <h1 className="text-4xl font-display font-bold">Saint Francis College Guihulngan - Digital Clearance System</h1>
+            <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
+              Saint Francis College Guihulngan
+            </h1>
           </div>
-          <p className="text-xl text-primary-foreground/90 mb-12 leading-relaxed">
-            Digital Clearance System - Simplify your academic clearance process with ease and efficiency.
+          <div className="mb-6 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-pink-500" />
+            <p className="text-xl font-semibold text-violet-600 dark:text-violet-300">
+              Digital Clearance System
+            </p>
+          </div>
+          <p className="text-lg text-slate-700 dark:text-slate-300 mb-12 leading-relaxed">
+            Simplify your academic clearance process with ease and efficiency. Modern, fast, and reliable.
           </p>
           
           <div className="space-y-6">
-            <div className="flex items-start gap-4 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-              <div className="p-2 bg-primary-foreground/10 rounded-lg">
-                <GraduationCap className="h-6 w-6" />
+            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-violet-200 dark:border-purple-700" style={{ animationDelay: '0.1s' }}>
+              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg shadow-md">
+                <GraduationCap className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Student Registration</h3>
-                <p className="text-sm text-primary-foreground/70">Register with your student ID and course details</p>
+                <h3 className="font-semibold mb-1 text-violet-900 dark:text-violet-200">Student Registration</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Register with your student ID and course details</p>
               </div>
             </div>
-            <div className="flex items-start gap-4 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-              <div className="p-2 bg-primary-foreground/10 rounded-lg">
-                <Users className="h-6 w-6" />
+            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-pink-200 dark:border-pink-700" style={{ animationDelay: '0.2s' }}>
+              <div className="p-2 bg-gradient-to-br from-pink-400 to-rose-500 rounded-lg shadow-md">
+                <Users className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Select Signatories</h3>
-                <p className="text-sm text-primary-foreground/70">Choose required department heads for approval</p>
+                <h3 className="font-semibold mb-1 text-pink-900 dark:text-pink-200">Select Signatories</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Choose required department heads for approval</p>
               </div>
             </div>
-            <div className="flex items-start gap-4 animate-slide-up" style={{ animationDelay: '0.3s' }}>
-              <div className="p-2 bg-primary-foreground/10 rounded-lg">
-                <Shield className="h-6 w-6" />
+            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-blue-200 dark:border-blue-700" style={{ animationDelay: '0.3s' }}>
+              <div className="p-2 bg-gradient-to-br from-blue-400 to-cyan-500 rounded-lg shadow-md">
+                <Shield className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Real-time Tracking</h3>
-                <p className="text-sm text-primary-foreground/70">Monitor your clearance status in real-time</p>
+                <h3 className="font-semibold mb-1 text-blue-900 dark:text-blue-200">Real-time Tracking</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Monitor your clearance status in real-time</p>
               </div>
             </div>
           </div>
@@ -126,27 +142,45 @@ export default function Auth() {
       </div>
 
       {/* Right side - Auth Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
-        <Card className="w-full max-w-md shadow-elevated animate-scale-in">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative z-10">
+        <Card className="w-full max-w-md shadow-2xl animate-scale-in bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-2 border-violet-200 dark:border-purple-700">
           <CardHeader className="text-center pb-2">
             <div className="flex items-center justify-center gap-2 mb-4 lg:hidden">
-              <FileCheck className="h-8 w-8 text-primary" />
-              <span className="text-2xl font-display font-bold">SFC-G DCS</span>
+              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-600 rounded-xl shadow-lg">
+                <FileCheck className="h-8 w-8 text-white" />
+              </div>
+              <span className="text-2xl font-display font-bold bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
+                SFC - Digital Clearance
+              </span>
             </div>
-            <CardTitle className="text-2xl font-display">Welcome</CardTitle>
-            <CardDescription>Sign in to your account or register as a student</CardDescription>
+            <CardTitle className="text-3xl font-display bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
+              Welcome
+            </CardTitle>
+            <CardDescription className="text-slate-600 dark:text-slate-400">
+              Sign in to your account or register as a student
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="login" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger value="login">Sign In</TabsTrigger>
-                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 mb-6 bg-violet-100 dark:bg-slate-800 p-1">
+                <TabsTrigger 
+                  value="login"
+                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-600 data-[state=active]:text-white"
+                >
+                  Sign In
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="signup"
+                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-600 data-[state=active]:text-white"
+                >
+                  Sign Up
+                </TabsTrigger>
               </TabsList>
               
               <TabsContent value="login">
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-email">Email</Label>
+                    <Label htmlFor="login-email" className="text-slate-700 dark:text-slate-300 font-medium">Email</Label>
                     <Input
                       id="login-email"
                       type="email"
@@ -154,10 +188,11 @@ export default function Auth() {
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       required
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="login-password">Password</Label>
+                    <Label htmlFor="login-password" className="text-slate-700 dark:text-slate-300 font-medium">Password</Label>
                     <Input
                       id="login-password"
                       type="password"
@@ -165,9 +200,15 @@ export default function Auth() {
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       required
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all" 
+                    size="lg" 
+                    disabled={isLoading}
+                  >
                     {isLoading ? 'Signing in...' : 'Sign In'}
                   </Button>
                 </form>
@@ -176,7 +217,7 @@ export default function Auth() {
               <TabsContent value="signup">
                 <form onSubmit={handleSignup} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="full-name">Full Name *</Label>
+                    <Label htmlFor="full-name" className="text-slate-700 dark:text-slate-300 font-medium">Full Name *</Label>
                     <Input
                       id="full-name"
                       type="text"
@@ -184,23 +225,25 @@ export default function Auth() {
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="student-id">Student ID</Label>
+                    <Label htmlFor="student-id" className="text-slate-700 dark:text-slate-300 font-medium">Student ID</Label>
                     <Input
                       id="student-id"
                       type="text"
                       placeholder="23-0456-A"
                       value={studentId}
                       onChange={(e) => setStudentId(e.target.value)}
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="year-level">Year Level</Label>
+                      <Label htmlFor="year-level" className="text-slate-700 dark:text-slate-300 font-medium">Year Level</Label>
                       <Select value={yearLevel} onValueChange={setYearLevel}>
-                        <SelectTrigger>
+                        <SelectTrigger className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500">
                           <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
@@ -209,9 +252,9 @@ export default function Auth() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="department">Department</Label>
+                      <Label htmlFor="department" className="text-slate-700 dark:text-slate-300 font-medium">Department</Label>
                       <Select value={course} onValueChange={setCourse}>
-                        <SelectTrigger>
+                        <SelectTrigger className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500">
                           <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
@@ -227,7 +270,7 @@ export default function Auth() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email *</Label>
+                    <Label htmlFor="signup-email" className="text-slate-700 dark:text-slate-300 font-medium">Email *</Label>
                     <Input
                       id="signup-email"
                       type="email"
@@ -235,10 +278,11 @@ export default function Auth() {
                       value={signupEmail}
                       onChange={(e) => setSignupEmail(e.target.value)}
                       required
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password *</Label>
+                    <Label htmlFor="signup-password" className="text-slate-700 dark:text-slate-300 font-medium">Password *</Label>
                     <Input
                       id="signup-password"
                       type="password"
@@ -247,9 +291,15 @@ export default function Auth() {
                       onChange={(e) => setSignupPassword(e.target.value)}
                       required
                       minLength={6}
+                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
                     />
                   </div>
-                  <Button type="submit" variant="hero" className="w-full" size="lg" disabled={isLoading}>
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all" 
+                    size="lg" 
+                    disabled={isLoading}
+                  >
                     {isLoading ? 'Creating account...' : 'Create Account'}
                   </Button>
                 </form>
@@ -258,6 +308,23 @@ export default function Auth() {
           </CardContent>
         </Card>
       </div>
+
+      <style>{`
+        @keyframes blob {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 20px) scale(0.9); }
+        }
+        .animate-blob {
+          animation: blob 7s infinite;
+        }
+        .animation-delay-2000 {
+          animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+          animation-delay: 4s;
+        }
+      `}</style>
     </div>
   );
 }
