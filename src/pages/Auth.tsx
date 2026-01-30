@@ -100,7 +100,7 @@ export default function Auth() {
             </h1>
           </div>
           <div className="mb-6 flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-pink-500" />
+            
             <p className="text-xl font-semibold text-violet-600 dark:text-violet-300">
               Digital Clearance System
             </p>
