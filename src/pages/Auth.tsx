@@ -87,10 +87,10 @@ export default function Auth() {
             <div className="p-3 bg-primary-foreground/10 rounded-xl backdrop-blur-sm">
               <FileCheck className="h-10 w-10" />
             </div>
-            <h1 className="text-4xl font-display font-bold">SFC-G DCS</h1>
+            <h1 className="text-4xl font-display font-bold">Saint Francis College Guihulngan - Digital Clearance System</h1>
           </div>
           <p className="text-xl text-primary-foreground/90 mb-12 leading-relaxed">
-            Digital Clearance System - Streamline your academic clearance process with ease and efficiency.
+            Digital Clearance System - Simplify your academic clearance process with ease and efficiency.
           </p>
           
           <div className="space-y-6">
