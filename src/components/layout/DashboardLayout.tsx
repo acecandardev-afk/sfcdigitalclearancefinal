@@ -121,7 +121,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <div className="p-2 bg-sidebar-primary/10 rounded-lg">
                 <FileCheck className="h-6 w-6 text-sidebar-primary" />
               </div>
-              <span className="font-display font-bold text-xl">SFC-G DCS</span>
+              <span className="font-display font-bold text-xl">Saint Francis College Guihulgan - Digital Clearance System</span>
             </div>
 
             {/* Navigation */}

@@ -63,7 +63,7 @@ export default function Index() {
             </div>
 
             <h1 className="text-5xl md:text-7xl font-display font-bold mb-6 animate-slide-up">
-              SFC-G DCS
+              Saint Francis College - Guihulngan 
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/80 mb-4 animate-slide-up" style={{ animationDelay: '0.1s' }}>
               Digital Clearance System

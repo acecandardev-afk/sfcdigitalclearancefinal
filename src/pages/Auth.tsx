@@ -150,7 +150,7 @@ export default function Auth() {
                 <FileCheck className="h-8 w-8 text-white" />
               </div>
               <span className="text-2xl font-display font-bold bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
-                SFC - Digital Clearance
+                Saint Francis College - Guihulngan - Digital Clearance
               </span>
             </div>
             <CardTitle className="text-3xl font-display bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
