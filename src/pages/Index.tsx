@@ -69,7 +69,7 @@ export default function Index() {
               Digital Clearance System
             </p>
             <p className="text-lg text-primary-foreground/70 max-w-2xl mx-auto mb-12 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-              Streamline your academic clearance process. Submit documents, select signatories, and track your clearance status — all in one place.
+              Streamlines your academic clearance process. Submit documents, select signatories, and track your clearance status — all in one place.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-slide-up" style={{ animationDelay: '0.3s' }}>
