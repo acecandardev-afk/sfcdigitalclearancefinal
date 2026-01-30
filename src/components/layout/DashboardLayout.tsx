@@ -59,7 +59,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    ...(!isSuperAdmin() ? [{ path: '/dashboard/clearances', label: 'My Clearances', icon: FileText }] : []),
+    ...(isStudent() ? [{ path: '/dashboard/clearances', label: 'My Clearances', icon: FileText }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'Pending Requests', icon: Bell }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Approved', icon: CheckCircle }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
