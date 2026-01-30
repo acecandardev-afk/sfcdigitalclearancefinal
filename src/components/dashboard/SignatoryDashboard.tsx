@@ -574,6 +574,9 @@ export default function SignatoryDashboard() {
                         <p className="text-xs text-muted-foreground mt-1">
                           {signature.clearance_request.profiles.course} • {signature.clearance_request.profiles.year_level}
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          ID: {signature.clearance_request.profiles.student_id || 'N/A'}
+                        </p>
                         {signature.status === 'pending' && !signature.canSign && (
                           <p className="text-xs text-warning mt-1 flex items-center gap-1">
                             <Lock className="h-3 w-3" />
