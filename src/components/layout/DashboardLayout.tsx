@@ -62,6 +62,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     ...(isStudent() ? [{ path: '/dashboard/clearances', label: 'My Clearances', icon: FileText }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'Pending Requests', icon: Bell }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Approved', icon: CheckCircle }] : []),
+    ...(isSuperAdmin() ? [{ path: '/dashboard/students', label: 'Students', icon: User }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/settings', label: 'Settings', icon: Settings }] : []),
   ];

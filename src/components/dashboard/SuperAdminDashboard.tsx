@@ -6,13 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import {
   Users,
+  UserPlus,
   FileText,
   CheckCircle,
   Clock,
   Shield,
   Plus,
   Loader2,
-  TrendingUp,
+  ListOrdered,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -222,10 +223,26 @@ export default function SuperAdminDashboard() {
             <Button
               variant="outline"
               className="w-full justify-start"
+              onClick={() => navigate('/dashboard/students')}
+            >
+              <UserPlus className="h-4 w-4 mr-3" />
+              Create Student Account
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
               onClick={() => navigate('/dashboard/signatories')}
             >
               <Plus className="h-4 w-4 mr-3" />
-              Add New Signatory
+              Add Signatory
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => navigate('/dashboard/signatories')}
+            >
+              <ListOrdered className="h-4 w-4 mr-3" />
+              Default Signatory Order
             </Button>
             <Button
               variant="outline"

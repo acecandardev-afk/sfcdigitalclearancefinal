@@ -6,7 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -20,18 +20,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
-import SignatorySelector from '@/components/clearance/SignatorySelector';
-
-interface Signatory {
-  id: string;
-  name: string;
-  position: string;
-  department: string;
-}
-
-interface SelectedSignatory extends Signatory {
-  order: number;
-}
 
 interface Signature {
   id: string;
@@ -65,12 +53,6 @@ export default function ClearanceDetail() {
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
-  
-  // Edit mode state
-  const [isEditingSequence, setIsEditingSequence] = useState(false);
-  const [availableSignatories, setAvailableSignatories] = useState<Signatory[]>([]);
-  const [editedSignatories, setEditedSignatories] = useState<SelectedSignatory[]>([]);
-  const [savingSequence, setSavingSequence] = useState(false);
 
   useEffect(() => {
     if (user && id) {
@@ -133,85 +115,8 @@ export default function ClearanceDetail() {
     }
   };
 
-  // Check if clearance can be edited (no signatures have been made yet)
-  const canEditSequence = signatures.length > 0 && signatures.every((s) => s.status === 'pending');
-
-  // Check if clearance can be deleted (no signatures have been made)
+  // Check if clearance can be deleted (no non-pending signatures)
   const canDelete = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
-
-  // Start editing sequence
-  const startEditingSequence = async () => {
-    try {
-      // Fetch all available signatories
-      const { data, error } = await supabase
-        .from('signatories')
-        .select('id, name, position, department')
-        .eq('is_active', true)
-        .order('department');
-
-      if (error) throw error;
-      setAvailableSignatories(data || []);
-
-      // Convert current signatures to editable format
-      const currentSelected: SelectedSignatory[] = signatures.map((sig) => ({
-        id: sig.signatory_id,
-        name: sig.signatory.name,
-        position: sig.signatory.position,
-        department: sig.signatory.department,
-        order: sig.sequence_order,
-      }));
-      setEditedSignatories(currentSelected);
-      setIsEditingSequence(true);
-    } catch (error) {
-      console.error('Error fetching signatories:', error);
-      toast.error('Failed to load signatories');
-    }
-  };
-
-  // Cancel editing
-  const cancelEditingSequence = () => {
-    setIsEditingSequence(false);
-    setEditedSignatories([]);
-  };
-
-  // Save new sequence
-  const saveSequence = async () => {
-    if (!id || editedSignatories.length === 0) return;
-
-    setSavingSequence(true);
-    try {
-      // Delete existing signatures
-      const { error: deleteError } = await supabase
-        .from('clearance_signatures')
-        .delete()
-        .eq('clearance_request_id', id);
-
-      if (deleteError) throw deleteError;
-
-      // Insert new signatures with updated order
-      const signatureInserts = editedSignatories.map((sig) => ({
-        clearance_request_id: id,
-        signatory_id: sig.id,
-        status: 'pending' as const,
-        sequence_order: sig.order,
-      }));
-
-      const { error: insertError } = await supabase
-        .from('clearance_signatures')
-        .insert(signatureInserts);
-
-      if (insertError) throw insertError;
-
-      toast.success('Signing sequence updated successfully');
-      setIsEditingSequence(false);
-      fetchClearanceDetail(); // Refresh data
-    } catch (error) {
-      console.error('Error updating sequence:', error);
-      toast.error('Failed to update signing sequence');
-    } finally {
-      setSavingSequence(false);
-    }
-  };
 
   const handleDelete = async () => {
     if (!id) return;
@@ -370,54 +275,17 @@ export default function ClearanceDetail() {
           </Card>
         )}
 
-        {/* Signatures */}
+        {/* Signatures (assigned by admin; not editable by student) */}
         <Card className="shadow-card">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg">Signing Sequence</CardTitle>
-                <CardDescription>
-                  {signatures.filter((s) => s.status === 'approved').length} of {signatures.length}{' '}
-                  signatures collected (in order)
-                </CardDescription>
-              </div>
-              {canEditSequence && !isEditingSequence && (
-                <Button variant="outline" size="sm" onClick={startEditingSequence}>
-                  <Pencil className="h-4 w-4 mr-2" />
-                  Edit Sequence
-                </Button>
-              )}
-              {isEditingSequence && (
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" onClick={cancelEditingSequence} disabled={savingSequence}>
-                    <X className="h-4 w-4 mr-2" />
-                    Cancel
-                  </Button>
-                  <Button variant="hero" size="sm" onClick={saveSequence} disabled={savingSequence}>
-                    {savingSequence ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
-                    )}
-                    Save
-                  </Button>
-                </div>
-              )}
-            </div>
+            <CardTitle className="text-lg">Signing Sequence</CardTitle>
+            <CardDescription>
+              {signatures.filter((s) => s.status === 'approved').length} of {signatures.length}{' '}
+              signatures collected (in order)
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {isEditingSequence ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Drag or use arrows to reorder signatories. You can also add or remove signatories.
-                </p>
-                <SignatorySelector
-                  signatories={availableSignatories}
-                  selectedSignatories={editedSignatories}
-                  onSelectionChange={setEditedSignatories}
-                />
-              </div>
-            ) : signatures.length === 0 ? (
+            {signatures.length === 0 ? (
               <p className="text-muted-foreground text-center py-4">No signatures required</p>
             ) : (
               <div className="space-y-6">

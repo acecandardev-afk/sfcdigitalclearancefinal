@@ -23,16 +23,12 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import SignatorySelector from '@/components/clearance/SignatorySelector';
 
-interface Signatory {
+interface DefaultSignatory {
   id: string;
   name: string;
   position: string;
   department: string;
-}
-
-interface SelectedSignatory extends Signatory {
   order: number;
 }
 
@@ -52,14 +48,13 @@ type ClearanceFormData = z.infer<typeof clearanceSchema>;
 export default function NewClearance() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [signatories, setSignatories] = useState<Signatory[]>([]);
-  const [selectedSignatories, setSelectedSignatories] = useState<SelectedSignatory[]>([]);
+  const [defaultSignatories, setDefaultSignatories] = useState<DefaultSignatory[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingSignatories, setLoadingSignatories] = useState(true);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [pendingData, setPendingData] = useState<ClearanceFormData | null>(null);
-  const [signatoryError, setSignatoryError] = useState<string | null>(null);
+  const [allowNewClearance, setAllowNewClearance] = useState<boolean | null>(null);
 
   const form = useForm<ClearanceFormData>({
     resolver: zodResolver(clearanceSchema),
@@ -70,21 +65,51 @@ export default function NewClearance() {
   });
 
   useEffect(() => {
-    fetchSignatories();
-  }, []);
+    fetchDefaultSignatories();
+    (async () => {
+      try {
+        const { data: security } = await supabase
+          .from('system_settings')
+          .select('value_json')
+          .eq('key', 'security')
+          .maybeSingle();
+        const allowMultiple = (security?.value_json as { allow_multiple_clearances?: boolean } | null)?.allow_multiple_clearances ?? false;
+        if (allowMultiple) {
+          setAllowNewClearance(true);
+          return;
+        }
+        const { count } = await supabase
+          .from('clearance_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('student_id', user?.id)
+          .in('status', ['pending', 'in_progress']);
+        setAllowNewClearance((count ?? 0) === 0);
+      } catch {
+        setAllowNewClearance(true);
+      }
+    })();
+  }, [user?.id]);
 
-  const fetchSignatories = async () => {
+  const fetchDefaultSignatories = async () => {
     try {
       const { data, error } = await supabase
-        .from('signatories')
-        .select('id, name, position, department')
-        .eq('is_active', true)
-        .order('department');
+        .from('clearance_default_signatories')
+        .select('signatory_id, sequence_order, signatories(id, name, position, department)')
+        .order('sequence_order', { ascending: true });
 
       if (error) throw error;
-      setSignatories(data || []);
+      const list: DefaultSignatory[] = (data || [])
+        .filter((row: { signatories: unknown }) => row.signatories)
+        .map((row: { signatory_id: string; sequence_order: number; signatories: { id: string; name: string; position: string; department: string } }) => ({
+          id: row.signatories.id,
+          name: row.signatories.name,
+          position: row.signatories.position,
+          department: row.signatories.department,
+          order: row.sequence_order,
+        }));
+      setDefaultSignatories(list);
     } catch (error) {
-      console.error('Error fetching signatories:', error);
+      console.error('Error fetching default signatories:', error);
       toast.error('Failed to load signatories');
     } finally {
       setLoadingSignatories(false);
@@ -102,14 +127,15 @@ export default function NewClearance() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Show confirmation dialog instead of submitting directly
   const handleReviewSubmit = async (data: ClearanceFormData) => {
-    // Validate signatories manually
-    if (selectedSignatories.length === 0) {
-      setSignatoryError('Please select at least one signatory');
+    if (allowNewClearance === false) {
+      toast.error('Only one pending clearance is allowed. Complete or cancel your current request first.');
       return;
     }
-    setSignatoryError(null);
+    if (defaultSignatories.length === 0) {
+      toast.error('No signatories have been assigned yet. Please contact the administrator.');
+      return;
+    }
     setPendingData(data);
     setConfirmDialogOpen(true);
   };
@@ -157,8 +183,8 @@ export default function NewClearance() {
         });
       }
 
-      // Create signature requests with sequence order
-      const signatureInserts = selectedSignatories.map((sig) => ({
+      // Create signature requests from admin-assigned default signatories
+      const signatureInserts = defaultSignatories.map((sig) => ({
         clearance_request_id: clearanceData.id,
         signatory_id: sig.id,
         status: 'pending' as const,
@@ -175,7 +201,7 @@ export default function NewClearance() {
       supabase.functions.invoke('notify-signatories', {
         body: {
           clearance_request_id: clearanceData.id,
-          signatory_ids: selectedSignatories.map((s) => s.id),
+          signatory_ids: defaultSignatories.map((s) => s.id),
         },
       }).then((result) => {
         if (result.error) {
@@ -207,6 +233,18 @@ export default function NewClearance() {
             <p className="text-muted-foreground">Submit your clearance for approval</p>
           </div>
         </div>
+
+        {allowNewClearance === false && (
+          <Card className="shadow-card border-warning/50 bg-warning/5 mb-6">
+            <CardContent className="pt-6">
+              <p className="text-foreground font-medium">Only one pending clearance at a time is allowed.</p>
+              <p className="text-sm text-muted-foreground mt-1">Complete or cancel your current request before submitting a new one.</p>
+              <Button variant="outline" className="mt-4" onClick={() => navigate('/dashboard/clearances')}>
+                View my clearances
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleReviewSubmit)} className="space-y-6">
@@ -306,12 +344,12 @@ export default function NewClearance() {
               </CardContent>
             </Card>
 
-            {/* Signatories */}
+            {/* Signatories (assigned by admin — students cannot choose) */}
             <Card className="shadow-card">
               <CardHeader>
-                <CardTitle className="font-display text-lg">Required Signatories *</CardTitle>
+                <CardTitle className="font-display text-lg">Required Signatories</CardTitle>
                 <CardDescription>
-                  Select the signatories who need to approve your clearance. They will sign in the order you set.
+                  Signatories are assigned by the administrator. Your clearance will be sent to them in the set order.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -319,24 +357,28 @@ export default function NewClearance() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
-                ) : signatories.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground">No signatories available</p>
+                ) : defaultSignatories.length === 0 ? (
+                  <div className="text-center py-8 rounded-lg bg-muted/50">
+                    <p className="text-muted-foreground">No signatories have been assigned yet.</p>
+                    <p className="text-sm text-muted-foreground mt-1">Contact the administrator to set up clearance signatories.</p>
                   </div>
                 ) : (
-                  <SignatorySelector
-                    signatories={signatories}
-                    selectedSignatories={selectedSignatories}
-                    onSelectionChange={(selected) => {
-                      setSelectedSignatories(selected);
-                      if (selected.length > 0) {
-                        setSignatoryError(null);
-                      }
-                    }}
-                  />
-                )}
-                {signatoryError && (
-                  <p className="text-sm font-medium text-destructive mt-2">{signatoryError}</p>
+                  <div className="space-y-2">
+                    {defaultSignatories.map((sig, index) => (
+                      <div key={sig.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                        <div className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                          {index + 1}
+                        </div>
+                        <div className="p-1.5 bg-primary/10 rounded-full">
+                          <User className="h-4 w-4 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{sig.name}</p>
+                          <p className="text-sm text-muted-foreground">{sig.position} • {sig.department}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -346,7 +388,7 @@ export default function NewClearance() {
               <Button type="button" variant="outline" onClick={() => navigate(-1)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="hero" size="lg" disabled={loading}>
+              <Button type="submit" variant="hero" size="lg" disabled={loading || defaultSignatories.length === 0 || allowNewClearance === false}>
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -417,10 +459,10 @@ export default function NewClearance() {
                 {/* Signatories with sequence */}
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-muted-foreground">
-                    Signing Sequence ({selectedSignatories.length} signatories)
+                    Signing Sequence ({defaultSignatories.length} signatories)
                   </h4>
                   <div className="space-y-2">
-                    {selectedSignatories.map((sig) => (
+                    {defaultSignatories.map((sig) => (
                       <div key={sig.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
                         <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
                           {sig.order}

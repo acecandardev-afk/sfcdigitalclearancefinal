@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound, ListOrdered, ChevronUp, ChevronDown, UserPlus2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Signatory {
@@ -72,6 +72,10 @@ export default function Signatories() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedSignatory, setSelectedSignatory] = useState<Signatory | null>(null);
   const [formLoading, setFormLoading] = useState(false);
+  // Default signatories for student clearances (admin-assigned order)
+  const [defaultSignatories, setDefaultSignatories] = useState<{ id: string; signatory_id: string; sequence_order: number; signatory: Signatory }[]>([]);
+  const [defaultOrderLoading, setDefaultOrderLoading] = useState(false);
+  const [addDefaultDialogOpen, setAddDefaultDialogOpen] = useState(false);
 
   const signatoryForm = useForm<SignatoryFormData>({
     resolver: zodResolver(signatorySchema),
@@ -89,9 +93,32 @@ export default function Signatories() {
         navigate('/dashboard');
       } else {
         fetchSignatories();
+        fetchDefaultSignatories();
       }
     }
   }, [roleLoading, isSuperAdmin, navigate]);
+
+  const fetchDefaultSignatories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('clearance_default_signatories')
+        .select('id, signatory_id, sequence_order, signatories(id, name, position, department, email, is_active, user_id, created_at)')
+        .order('sequence_order', { ascending: true });
+      if (error) throw error;
+      const list = (data || [])
+        .filter((row: { signatories: unknown }) => row.signatories)
+        .map((row: { id: string; signatory_id: string; sequence_order: number; signatories: Signatory }) => ({
+          id: row.id,
+          signatory_id: row.signatory_id,
+          sequence_order: row.sequence_order,
+          signatory: row.signatories,
+        }));
+      setDefaultSignatories(list);
+    } catch (error) {
+      console.error('Error fetching default signatories:', error);
+      toast.error('Failed to load default signatory order');
+    }
+  };
 
   const fetchSignatories = async () => {
     try {
@@ -248,6 +275,63 @@ export default function Signatories() {
     }
   };
 
+  const addToDefaultOrder = async (signatory: Signatory) => {
+    const nextOrder = defaultSignatories.length === 0 ? 1 : Math.max(...defaultSignatories.map((d) => d.sequence_order)) + 1;
+    setDefaultOrderLoading(true);
+    try {
+      const { error } = await supabase.from('clearance_default_signatories').insert({
+        signatory_id: signatory.id,
+        sequence_order: nextOrder,
+      });
+      if (error) throw error;
+      toast.success(`${signatory.name} added to default clearance order`);
+      setAddDefaultDialogOpen(false);
+      fetchDefaultSignatories();
+    } catch (error) {
+      console.error('Error adding to default order:', error);
+      toast.error('Failed to add signatory to order');
+    } finally {
+      setDefaultOrderLoading(false);
+    }
+  };
+
+  const removeFromDefaultOrder = async (rowId: string) => {
+    setDefaultOrderLoading(true);
+    try {
+      const { error } = await supabase.from('clearance_default_signatories').delete().eq('id', rowId);
+      if (error) throw error;
+      toast.success('Removed from default order');
+      fetchDefaultSignatories();
+    } catch (error) {
+      console.error('Error removing from default order:', error);
+      toast.error('Failed to remove');
+    } finally {
+      setDefaultOrderLoading(false);
+    }
+  };
+
+  const moveInDefaultOrder = async (index: number, direction: 'up' | 'down') => {
+    const list = [...defaultSignatories];
+    const swap = direction === 'up' ? index - 1 : index + 1;
+    if (swap < 0 || swap >= list.length) return;
+    [list[index].sequence_order, list[swap].sequence_order] = [list[swap].sequence_order, list[index].sequence_order];
+    setDefaultOrderLoading(true);
+    try {
+      await supabase.from('clearance_default_signatories').update({ sequence_order: list[index].sequence_order }).eq('id', list[index].id);
+      await supabase.from('clearance_default_signatories').update({ sequence_order: list[swap].sequence_order }).eq('id', list[swap].id);
+      toast.success('Order updated');
+      fetchDefaultSignatories();
+    } catch (error) {
+      console.error('Error reordering:', error);
+      toast.error('Failed to update order');
+    } finally {
+      setDefaultOrderLoading(false);
+    }
+  };
+
+  const defaultOrderSignatoryIds = new Set(defaultSignatories.map((d) => d.signatory_id));
+  const availableToAdd = signatories.filter((s) => s.is_active && !defaultOrderSignatoryIds.has(s.id));
+
   const filteredSignatories = signatories.filter(
     (s) =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -272,13 +356,93 @@ export default function Signatories() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-display font-bold">Manage Signatories</h1>
-            <p className="text-muted-foreground">Add, edit, or remove authorized signatories</p>
+            <p className="text-muted-foreground">Add, edit, or remove authorized signatories. Assign who signs student clearances.</p>
           </div>
           <Button variant="hero" onClick={openAddDialog}>
             <Plus className="h-4 w-4 mr-2" />
             Add Signatory
           </Button>
         </div>
+
+        {/* Default signatories for clearances (admin-assigned; students cannot choose) */}
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="font-display flex items-center gap-2">
+              <ListOrdered className="h-5 w-5 text-primary" />
+              Default signatories for student clearances
+            </CardTitle>
+            <CardDescription>
+              Students cannot choose signatories. Set the signatories and order that will be used for every new clearance request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {defaultSignatories.length === 0 ? (
+              <div className="text-center py-6 rounded-lg bg-muted/50">
+                <p className="text-muted-foreground">No default signatories set.</p>
+                <p className="text-sm text-muted-foreground mt-1">Add signatories below; they will sign in the order you set.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {defaultSignatories.map((d, index) => (
+                  <div
+                    key={d.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-medium">{d.signatory.name}</p>
+                        <p className="text-sm text-muted-foreground">{d.signatory.position} • {d.signatory.department}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={defaultOrderLoading || index === 0}
+                        onClick={() => moveInDefaultOrder(index, 'up')}
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={defaultOrderLoading || index === defaultSignatories.length - 1}
+                        onClick={() => moveInDefaultOrder(index, 'down')}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        disabled={defaultOrderLoading}
+                        onClick={() => removeFromDefaultOrder(d.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={defaultOrderLoading || availableToAdd.length === 0}
+              onClick={() => setAddDefaultDialogOpen(true)}
+            >
+              <UserPlus2 className="h-4 w-4 mr-2" />
+              Add signatory to clearance order
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Search */}
         <div className="relative max-w-md">
@@ -531,6 +695,39 @@ export default function Signatories() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add to default order dialog */}
+      <Dialog open={addDefaultDialogOpen} onOpenChange={setAddDefaultDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">Add signatory to clearance order</DialogTitle>
+            <DialogDescription>
+              Choose a signatory to add to the default signing sequence. Only active signatories not already in the list are shown.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+            {availableToAdd.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">No signatories available to add. Add new signatories or activate existing ones.</p>
+            ) : (
+              availableToAdd.map((sig) => (
+                <div
+                  key={sig.id}
+                  className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50 cursor-pointer"
+                  onClick={() => addToDefaultOrder(sig)}
+                >
+                  <div>
+                    <p className="font-medium">{sig.name}</p>
+                    <p className="text-sm text-muted-foreground">{sig.position} • {sig.department}</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" disabled={defaultOrderLoading}>
+                    Add
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

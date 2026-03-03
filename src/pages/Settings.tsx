@@ -298,35 +298,130 @@ export default function Settings() {
 
   const uniqueActions = [...new Set(activityLogs.map((log) => log.action))];
 
+  const fetchSettings = async () => {
+    try {
+      const keys = ['general', 'notifications', 'security'];
+      for (const key of keys) {
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('value_json')
+          .eq('key', key)
+          .maybeSingle();
+        if (error) throw error;
+        const v = data?.value_json as Record<string, unknown> | null;
+        if (key === 'general' && v) {
+          setSystemName((v.system_name as string) ?? 'SFC-G DCS');
+          setInstitutionName((v.institution_name as string) ?? 'Saint Francis College - Guihulngan');
+          setAdminEmail((v.admin_email as string) ?? 'admin@sfc-g.edu.ph');
+        }
+        if (key === 'notifications' && v) {
+          setEmailNotifications((v.email_notifications as boolean) ?? true);
+          setNotifyOnSubmission((v.notify_on_submission as boolean) ?? true);
+          setNotifyOnApproval((v.notify_on_approval as boolean) ?? true);
+          setNotifyOnRejection((v.notify_on_rejection as boolean) ?? true);
+        }
+        if (key === 'security' && v) {
+          setRequireAllSignatures((v.require_all_signatures as boolean) ?? true);
+          setAllowMultipleClearances((v.allow_multiple_clearances as boolean) ?? false);
+          setAutoApproveAfterDays(v.auto_approve_after_days != null ? String(v.auto_approve_after_days) : '');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+      toast.error('Failed to load settings');
+    }
+  };
+
   useEffect(() => {
     if (!roleLoading && !isSuperAdmin()) {
       navigate('/dashboard');
     } else if (!roleLoading && isSuperAdmin()) {
       fetchUsers();
       fetchActivityLogs();
+      fetchSettings();
     }
   }, [roleLoading, isSuperAdmin, navigate]);
 
   const handleSaveGeneral = async () => {
     setSaving(true);
-    // Simulate API call - in production, save to database
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success('General settings saved successfully');
-    setSaving(false);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          {
+            key: 'general',
+            value_json: {
+              system_name: systemName,
+              institution_name: institutionName,
+              admin_email: adminEmail,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      toast.success('General settings saved successfully');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveNotifications = async () => {
     setSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success('Notification settings saved successfully');
-    setSaving(false);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          {
+            key: 'notifications',
+            value_json: {
+              email_notifications: emailNotifications,
+              notify_on_submission: notifyOnSubmission,
+              notify_on_approval: notifyOnApproval,
+              notify_on_rejection: notifyOnRejection,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      toast.success('Notification settings saved successfully');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveSecurity = async () => {
     setSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success('Security settings saved successfully');
-    setSaving(false);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          {
+            key: 'security',
+            value_json: {
+              require_all_signatures: requireAllSignatures,
+              allow_multiple_clearances: allowMultipleClearances,
+              auto_approve_after_days: autoApproveAfterDays ? parseInt(autoApproveAfterDays, 10) : null,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      toast.success('Security settings saved successfully');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (roleLoading) {

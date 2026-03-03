@@ -1,45 +1,36 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { FileCheck, GraduationCap, Shield, Users, Sparkles } from 'lucide-react';
+import { Loader2, Mail, Lock, FileCheck } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
+/** Background image: public/background.jpg */
+const BG_IMAGE = '/background.jpg';
+
+/**
+ * Full-page login with glassmorphism.
+ * /auth shows this page; password reset lands here with ?reset=1.
+ */
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, signIn, signUp } = useAuth();
+  const { user, loading, signIn, resetPassword } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // Login form
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-
-  // Signup form
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [yearLevel, setYearLevel] = useState('');
-  const [course, setCourse] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
+    if (!loading && user) {
+      navigate('/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, loading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    const { error } = await signIn(loginEmail, loginPassword);
-    
+    const { error } = await signIn(email, password);
     if (error) {
       toast.error(error.message);
     } else {
@@ -49,282 +40,220 @@ export default function Auth() {
     setIsLoading(false);
   };
 
-  const handleSignup = async (e: React.FormEvent) => {
+  const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-
-    if (!fullName || !signupEmail || !signupPassword) {
-      toast.error('Please fill in all required fields');
-      setIsLoading(false);
+    if (!email.trim()) {
+      toast.error('Enter your email address');
       return;
     }
-
-    const { error } = await signUp(signupEmail, signupPassword, fullName, studentId, yearLevel, course);
-    
+    setIsLoading(true);
+    const { error } = await resetPassword(email.trim());
     if (error) {
-      if (error.message.includes('already registered')) {
-        toast.error('This email is already registered. Please sign in instead.');
-      } else {
-        toast.error(error.message);
-      }
+      toast.error(error.message);
     } else {
-      toast.success('Account created successfully!');
-      navigate('/dashboard');
+      setForgotSent(true);
+      toast.success('Check your email for the reset link');
     }
     setIsLoading(false);
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-pink-50 to-blue-50 dark:from-slate-900 dark:via-purple-900 dark:to-slate-900 flex relative overflow-hidden">
-      {/* Animated Background Elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-300 dark:bg-purple-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob"></div>
-        <div className="absolute top-40 right-10 w-72 h-72 bg-pink-300 dark:bg-pink-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-blue-300 dark:bg-blue-500 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+  if (loading) {
+    return (
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
+        <div className="fixed top-4 right-4 z-50 text-white [&_button]:text-white/90 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
+          <ThemeToggle />
+        </div>
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50"
+          style={{ backgroundImage: `url(${BG_IMAGE})` }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-black/50" aria-hidden />
+        <div className="relative z-10 flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-white" />
+          <span className="text-white/90 font-medium">Loading…</span>
+        </div>
       </div>
+    );
+  }
 
-      {/* Theme Toggle */}
-      <div className="absolute top-4 right-4 z-50">
+  if (user) {
+    return null;
+  }
+
+  return (
+    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden">
+      {/* Light/dark toggle - fixed top-right */}
+      <div className="fixed top-4 right-4 z-50 text-white [&_button]:text-white/90 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
         <ThemeToggle />
       </div>
 
-      {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 text-slate-800 dark:text-white relative z-10">
-        <div className="max-w-md animate-fade-in">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-3 bg-gradient-to-br from-violet-400 to-purple-600 dark:from-violet-500 dark:to-purple-700 rounded-2xl shadow-lg backdrop-blur-sm transform hover:scale-105 transition-transform">
-              <FileCheck className="h-10 w-10 text-white" />
-            </div>
-            <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
-              Saint Francis College Guihulngan
-            </h1>
+      {/* Background image with lower opacity */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50"
+        style={{ backgroundImage: `url(${BG_IMAGE})` }}
+        aria-hidden
+      />
+      {/* Dark overlay for readability */}
+      <div className="absolute inset-0 bg-black/50" aria-hidden />
+
+      {/* Login card - glassmorphism */}
+      <div
+        className="relative z-10 w-[90%] max-w-[400px] rounded-2xl p-8 shadow-2xl border border-white/20"
+        style={{
+          background: 'rgba(255, 255, 255, 0.1)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}
+      >
+        {/* Logo */}
+        <div className="flex items-center justify-center gap-2 mb-8">
+          <div className="p-2 rounded-xl bg-white/20">
+            <FileCheck className="h-6 w-6 text-white" />
           </div>
-          <div className="mb-6 flex items-center gap-2">
-            
-            <p className="text-xl font-semibold text-violet-600 dark:text-violet-300">
-              Digital Clearance System
-            </p>
-          </div>
-          <p className="text-lg text-slate-700 dark:text-slate-300 mb-12 leading-relaxed">
-            Simplify your academic clearance process with ease and efficiency. Modern, fast, and reliable.
-          </p>
-          
-          <div className="space-y-6">
-            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-violet-200 dark:border-purple-700" style={{ animationDelay: '0.1s' }}>
-              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg shadow-md">
-                <GraduationCap className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-violet-900 dark:text-violet-200">Student Registration</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Register with your student ID and course details</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-pink-200 dark:border-pink-700" style={{ animationDelay: '0.2s' }}>
-              <div className="p-2 bg-gradient-to-br from-pink-400 to-rose-500 rounded-lg shadow-md">
-                <Users className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-pink-900 dark:text-pink-200">Select Signatories</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Choose required department heads for approval</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-4 p-4 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-md transition-shadow animate-slide-up border border-blue-200 dark:border-blue-700" style={{ animationDelay: '0.3s' }}>
-              <div className="p-2 bg-gradient-to-br from-blue-400 to-cyan-500 rounded-lg shadow-md">
-                <Shield className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-blue-900 dark:text-blue-200">Real-time Tracking</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Monitor your clearance status in real-time</p>
-              </div>
-            </div>
-          </div>
+          <span className="text-xl font-semibold text-white" style={{ fontFamily: 'Inter, sans-serif' }}>
+            SFC-G DCS
+          </span>
         </div>
-      </div>
 
-      {/* Right side - Auth Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative z-10">
-        <Card className="w-full max-w-md shadow-2xl animate-scale-in bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-2 border-violet-200 dark:border-purple-700">
-          <CardHeader className="text-center pb-2">
-            <div className="flex items-center justify-center gap-2 mb-4 lg:hidden">
-              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-600 rounded-xl shadow-lg">
-                <FileCheck className="h-8 w-8 text-white" />
-              </div>
-              <span className="text-2xl font-display font-bold bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
-                Saint Francis College - Guihulngan - Digital Clearance
-              </span>
+        {showForgot ? (
+          forgotSent ? (
+            <div className="space-y-6 text-center">
+              <h1 className="text-xl font-semibold text-white" style={{ fontFamily: 'Inter, sans-serif' }}>
+                Check your email
+              </h1>
+              <p className="text-sm text-white/80">
+                We sent a link to your email. Use it to set a new password.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgot(false);
+                  setForgotSent(false);
+                }}
+                className="w-full py-3 px-4 rounded-xl text-white font-medium transition-all duration-200 hover:bg-white/20"
+                style={{ background: 'rgba(255,255,255,0.15)' }}
+              >
+                Back to sign in
+              </button>
             </div>
-            <CardTitle className="text-3xl font-display bg-gradient-to-r from-violet-600 to-purple-600 dark:from-violet-400 dark:to-purple-400 bg-clip-text text-transparent">
-              Welcome
-            </CardTitle>
-            <CardDescription className="text-slate-600 dark:text-slate-400">
-              Sign in to your account or register as a student
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="login" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6 bg-violet-100 dark:bg-slate-800 p-1">
-                <TabsTrigger 
-                  value="login"
-                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-600 data-[state=active]:text-white"
+          ) : (
+            <form onSubmit={handleForgot} className="space-y-5">
+              <h1 className="text-xl font-semibold text-white text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
+                Reset password
+              </h1>
+              <p className="text-sm text-white/80 text-center">
+                Enter your email and we'll send you a reset link.
+              </p>
+              <div className="space-y-2">
+                <label htmlFor="forgot-email" className="text-sm font-medium text-white/90">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
+                    style={{ background: 'rgba(255,255,255,0.08)' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowForgot(false)}
+                  className="flex-1 py-3 px-4 rounded-xl text-white font-medium border border-white/30 hover:bg-white/10 transition-all duration-200"
                 >
-                  Sign In
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="signup"
-                  className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-purple-600 data-[state=active]:text-white"
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="flex-1 py-3 px-4 rounded-xl text-white font-medium bg-white/25 hover:bg-white/35 transition-all duration-200 disabled:opacity-70 flex items-center justify-center gap-2"
                 >
-                  Sign Up
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="login">
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="login-email" className="text-slate-700 dark:text-slate-300 font-medium">Email</Label>
-                    <Input
-                      id="login-email"
-                      type="email"
-                      placeholder="student@example.com"
-                      value={loginEmail}
-                      onChange={(e) => setLoginEmail(e.target.value)}
-                      required
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="login-password" className="text-slate-700 dark:text-slate-300 font-medium">Password</Label>
-                    <Input
-                      id="login-password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      required
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all" 
-                    size="lg" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? 'Signing in...' : 'Sign In'}
-                  </Button>
-                </form>
-              </TabsContent>
-              
-              <TabsContent value="signup">
-                <form onSubmit={handleSignup} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="full-name" className="text-slate-700 dark:text-slate-300 font-medium">Full Name *</Label>
-                    <Input
-                      id="full-name"
-                      type="text"
-                      placeholder="Juan Dela Cruz"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      required
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="student-id" className="text-slate-700 dark:text-slate-300 font-medium">Student ID</Label>
-                    <Input
-                      id="student-id"
-                      type="text"
-                      placeholder="23-0456-A"
-                      value={studentId}
-                      onChange={(e) => setStudentId(e.target.value)}
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="year-level" className="text-slate-700 dark:text-slate-300 font-medium">Year Level</Label>
-                      <Select value={yearLevel} onValueChange={setYearLevel}>
-                        <SelectTrigger className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500">
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="4th Year">4th Year</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="department" className="text-slate-700 dark:text-slate-300 font-medium">Department</Label>
-                      <Select value={course} onValueChange={setCourse}>
-                        <SelectTrigger className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500">
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="College of Computer Studies">College of Computer Studies</SelectItem>
-                          <SelectItem value="College of Business Administration">College of Business Administration</SelectItem>
-                          <SelectItem value="College of Education">College of Education</SelectItem>
-                          <SelectItem value="College of Engineering">College of Engineering</SelectItem>
-                          <SelectItem value="College of Arts and Sciences">College of Arts and Sciences</SelectItem>
-                          <SelectItem value="College of Nursing">College of Nursing</SelectItem>
-                          <SelectItem value="College of Accountancy">College of Accountancy</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email" className="text-slate-700 dark:text-slate-300 font-medium">Email *</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="student@example.com"
-                      value={signupEmail}
-                      onChange={(e) => setSignupEmail(e.target.value)}
-                      required
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password" className="text-slate-700 dark:text-slate-300 font-medium">Password *</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={signupPassword}
-                      onChange={(e) => setSignupPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      className="border-violet-200 dark:border-purple-700 focus:border-violet-400 dark:focus:border-purple-500 focus:ring-violet-400 dark:focus:ring-purple-500"
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all" 
-                    size="lg" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? 'Creating account...' : 'Create Account'}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send reset link'}
+                </button>
+              </div>
+            </form>
+          )
+        ) : (
+          <form onSubmit={handleLogin} className="space-y-5">
+            <h1 className="text-xl font-semibold text-white text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Sign in
+            </h1>
+            <p className="text-sm text-white/80 text-center">
+              Use the account created for you by the administrator.
+            </p>
 
-      <style>{`
-        @keyframes blob {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
+            <div className="space-y-2">
+              <label htmlFor="login-email" className="text-sm font-medium text-white/90">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                <input
+                  id="login-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="login-password" className="text-sm font-medium text-white/90">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowForgot(true)}
+                  className="text-xs text-white/80 hover:text-white hover:underline transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                <input
+                  id="login-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 px-4 rounded-xl text-white font-semibold bg-white/25 hover:bg-white/35 transition-all duration-200 disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Login'}
+            </button>
+
+            <p className="text-center text-sm text-white/70">
+              Don't have an account?{' '}
+              <Link to="/" className="text-white font-medium hover:underline">
+                Contact administrator
+              </Link>
+            </p>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
