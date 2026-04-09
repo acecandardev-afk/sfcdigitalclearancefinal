@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, CheckCheck, Trash2, X } from 'lucide-react';
+import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -14,6 +15,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 export default function NotificationBell() {
   const navigate = useNavigate();
+  const { isSignatory } = useUserRole();
   const {
     notifications,
     unreadCount,
@@ -29,7 +31,12 @@ export default function NotificationBell() {
     }
     
     if (notification.related_type === 'clearance' && notification.related_id) {
-      navigate(`/dashboard/clearances/${notification.related_id}`);
+      // Signatories: /dashboard/requests/:id (SignatoryClearanceDetail - view & sign)
+      // Students/superadmins: /dashboard/clearances/:id (ClearanceDetail)
+      const path = isSignatory()
+        ? `/dashboard/requests/${notification.related_id}`
+        : `/dashboard/clearances/${notification.related_id}`;
+      navigate(path);
       setOpen(false);
     }
   };
@@ -112,8 +119,9 @@ export default function NotificationBell() {
                           className="h-6 w-6"
                           onClick={(e) => {
                             e.stopPropagation();
-                            markAsRead(notification.id);
+                            handleNotificationClick(notification);
                           }}
+                          title="Mark as read and view request"
                         >
                           <Check className="h-3 w-3" />
                         </Button>

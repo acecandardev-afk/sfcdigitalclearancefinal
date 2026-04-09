@@ -24,6 +24,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { CheckCircle, FileText, Loader2, Search, ArrowUpDown, Eye } from 'lucide-react';
+import { TERMS } from '@/lib/terms';
 import { toast } from 'sonner';
 
 interface ApprovedSignature {
@@ -132,7 +133,7 @@ export default function ApprovedClearances() {
       setSignatures(processedSignatures as ApprovedSignature[]);
     } catch (error) {
       console.error('Error fetching approved signatures:', error);
-      toast.error('Failed to load approved clearances');
+      toast.error('Failed to load processed requests');
     } finally {
       setLoading(false);
     }
@@ -203,9 +204,9 @@ export default function ApprovedClearances() {
       <div className="p-6 space-y-8">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-display font-bold">Approved Clearances</h1>
+          <h1 className="text-3xl font-display font-bold">Completed</h1>
           <p className="text-muted-foreground mt-1">
-            View all clearances you have processed
+            View all requests you have processed
           </p>
         </div>
 
@@ -215,7 +216,7 @@ export default function ApprovedClearances() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Approved</p>
+                  <p className="text-sm text-muted-foreground">{TERMS.APPROVED}</p>
                   <p className="text-3xl font-display font-bold mt-1">
                     {approvedCount}
                   </p>
@@ -230,7 +231,7 @@ export default function ApprovedClearances() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Rejected</p>
+                  <p className="text-sm text-muted-foreground">{TERMS.REJECTED}</p>
                   <p className="text-3xl font-display font-bold mt-1">
                     {rejectedCount}
                   </p>
@@ -250,7 +251,7 @@ export default function ApprovedClearances() {
               <div>
                 <CardTitle className="font-display">Processing History</CardTitle>
                 <CardDescription>
-                  All clearances you have approved or rejected
+                  All requests you have approved or rejected
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -302,12 +303,12 @@ export default function ApprovedClearances() {
                 <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
                 <h3 className="mt-4 text-lg font-semibold">
                   {signatures.length === 0
-                    ? 'No processed clearances'
-                    : 'No matching clearances'}
+                    ? 'No processed requests'
+                    : 'No matching requests'}
                 </h3>
                 <p className="text-muted-foreground mt-2">
                   {signatures.length === 0
-                    ? "You haven't approved or rejected any clearances yet"
+                    ? "You haven't approved or rejected any requests yet"
                     : 'Try adjusting your search'}
                 </p>
               </div>
@@ -357,7 +358,7 @@ export default function ApprovedClearances() {
                             signature.status === 'approved' ? 'approved' : 'rejected'
                           }
                         >
-                          {signature.status === 'approved' ? 'Approved' : 'Rejected'}
+                          {signature.status === 'approved' ? TERMS.APPROVED : TERMS.REJECTED}
                         </Badge>
                         <Button
                           variant="outline"
@@ -382,7 +383,7 @@ export default function ApprovedClearances() {
                     <p className="text-sm text-muted-foreground">
                       Showing {startIndex + 1}-
                       {Math.min(startIndex + itemsPerPage, sortedSignatures.length)} of{' '}
-                      {sortedSignatures.length} clearances
+                      {sortedSignatures.length} requests
                     </p>
                     <Pagination>
                       <PaginationContent>

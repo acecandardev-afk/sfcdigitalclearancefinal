@@ -117,8 +117,12 @@
     @apply border-border;
   }
 
+  html {
+    @apply bg-muted;
+  }
+
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-transparent text-foreground antialiased;
     font-family: 'Inter', 'DM Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -198,6 +202,16 @@
 
   .animate-glow-pulse {
     animation: glowPulse 4s ease-in-out infinite;
+  }
+
+  /** Consistent page width + padding for dashboard views */
+  .app-page {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8;
+  }
+
+  /** Default elevated surface (cards, panels) */
+  .app-surface {
+    @apply rounded-xl border border-border/60 bg-card shadow-sm;
   }
 }
 

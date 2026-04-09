@@ -1,28 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { ArrowLeft, Upload, X, Loader2, FileText, Send, Eye, User } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ArrowLeft, Upload, X, Loader2, FileText, Send, User, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 
 interface DefaultSignatory {
   id: string;
@@ -30,42 +16,26 @@ interface DefaultSignatory {
   position: string;
   department: string;
   order: number;
+  signatory_group?: 'standard' | 'authority';
+  authority_sequence_order?: number | null;
 }
-
-const clearanceSchema = z.object({
-  title: z.string()
-    .trim()
-    .min(1, 'Title is required')
-    .max(200, 'Title must be less than 200 characters'),
-  description: z.string()
-    .trim()
-    .max(1000, 'Description must be less than 1000 characters')
-    .optional(),
-});
-
-type ClearanceFormData = z.infer<typeof clearanceSchema>;
 
 export default function NewClearance() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [defaultSignatories, setDefaultSignatories] = useState<DefaultSignatory[]>([]);
+  const [signatories, setSignatories] = useState<DefaultSignatory[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [customMessage, setCustomMessage] = useState('');
+  const [selectedSignatoryIds, setSelectedSignatoryIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [loadingSignatories, setLoadingSignatories] = useState(true);
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [pendingData, setPendingData] = useState<ClearanceFormData | null>(null);
   const [allowNewClearance, setAllowNewClearance] = useState<boolean | null>(null);
 
-  const form = useForm<ClearanceFormData>({
-    resolver: zodResolver(clearanceSchema),
-    defaultValues: {
-      title: '',
-      description: '',
-    },
-  });
-
   useEffect(() => {
-    fetchDefaultSignatories();
+    if (!user?.id) return;
+
+    fetchSignatoriesForStudent(user.id);
+
     (async () => {
       try {
         const { data: security } = await supabase
@@ -81,7 +51,7 @@ export default function NewClearance() {
         const { count } = await supabase
           .from('clearance_requests')
           .select('id', { count: 'exact', head: true })
-          .eq('student_id', user?.id)
+          .eq('student_id', user.id)
           .in('status', ['pending', 'in_progress']);
         setAllowNewClearance((count ?? 0) === 0);
       } catch {
@@ -90,71 +60,111 @@ export default function NewClearance() {
     })();
   }, [user?.id]);
 
-  const fetchDefaultSignatories = async () => {
+  const fetchSignatoriesForStudent = async (studentId: string) => {
     try {
-      const { data, error } = await supabase
+      setLoadingSignatories(true);
+
+      const { data: assignmentData } = await supabase
+        .from('student_signatory_assignments')
+        .select('signatory_id, sequence_order, signatory_group, signatories(id, name, position, department, signatory_group, authority_sequence_order)')
+        .eq('student_id', studentId)
+        .order('sequence_order', { ascending: true });
+
+      if (assignmentData && assignmentData.length > 0) {
+        const list: DefaultSignatory[] = assignmentData
+          .filter((row: { signatories: unknown }) => row.signatories)
+          .map((row: any) => ({
+            id: row.signatories.id,
+            name: row.signatories.name,
+            position: row.signatories.position,
+            department: row.signatories.department,
+            order: row.sequence_order,
+            signatory_group: row.signatories?.signatory_group || 'standard',
+            authority_sequence_order: row.signatories?.authority_sequence_order ?? null,
+          }));
+        setSignatories(list);
+        setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
+        setLoadingSignatories(false);
+        return;
+      }
+
+      const { data: defaultData, error } = await supabase
         .from('clearance_default_signatories')
-        .select('signatory_id, sequence_order, signatories(id, name, position, department)')
+        .select('signatory_id, sequence_order, signatories(id, name, position, department, signatory_group, authority_sequence_order)')
         .order('sequence_order', { ascending: true });
 
       if (error) throw error;
-      const list: DefaultSignatory[] = (data || [])
+
+      const list: DefaultSignatory[] = (defaultData || [])
         .filter((row: { signatories: unknown }) => row.signatories)
-        .map((row: { signatory_id: string; sequence_order: number; signatories: { id: string; name: string; position: string; department: string } }) => ({
+        .map((row: any) => ({
           id: row.signatories.id,
           name: row.signatories.name,
           position: row.signatories.position,
           department: row.signatories.department,
           order: row.sequence_order,
+          signatory_group: row.signatories?.signatory_group || 'standard',
+          authority_sequence_order: row.signatories?.authority_sequence_order ?? null,
         }));
-      setDefaultSignatories(list);
+      setSignatories(list);
+      setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
     } catch (error) {
-      console.error('Error fetching default signatories:', error);
-      toast.error('Failed to load signatories');
+      console.error('Error fetching signatories:', error);
+      toast.error('Failed to load signatories. Please contact the administrator.');
     } finally {
       setLoadingSignatories(false);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setFiles((prev) => [...prev, ...newFiles]);
-    }
+    if (e.target.files) setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
   };
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleReviewSubmit = async (data: ClearanceFormData) => {
+  const toggleSelectAll = () => {
+    if (selectedSignatoryIds.size === signatories.length) {
+      setSelectedSignatoryIds(new Set());
+    } else {
+      setSelectedSignatoryIds(new Set(signatories.map((s) => s.id)));
+    }
+  };
+
+  const toggleSignatory = (id: string) => {
+    setSelectedSignatoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSubmit = async () => {
     if (allowNewClearance === false) {
       toast.error('Only one pending clearance is allowed. Complete or cancel your current request first.');
       return;
     }
-    if (defaultSignatories.length === 0) {
+    if (selectedSignatoryIds.size === 0) {
+      toast.error('Select at least one signatory to request.');
+      return;
+    }
+    if (signatories.length === 0) {
       toast.error('No signatories have been assigned yet. Please contact the administrator.');
       return;
     }
-    setPendingData(data);
-    setConfirmDialogOpen(true);
-  };
 
-  const onSubmit = async () => {
-    if (!pendingData) return;
-    const data = pendingData;
-    
     setLoading(true);
-    setConfirmDialogOpen(false);
-
     try {
-      // Create clearance request
+      const title = customMessage.trim() || `Clearance Request - ${new Date().toLocaleDateString('en-US')}`;
+
       const { data: clearanceData, error: clearanceError } = await supabase
         .from('clearance_requests')
         .insert({
           student_id: user?.id,
-          title: data.title,
-          description: data.description || null,
+          title,
+          description: customMessage.trim() || null,
           status: 'pending',
         })
         .select()
@@ -162,19 +172,12 @@ export default function NewClearance() {
 
       if (clearanceError) throw clearanceError;
 
-      // Upload files if any
       for (const file of files) {
         const filePath = `${user?.id}/${clearanceData.id}/${Date.now()}-${file.name}`;
         const { error: uploadError } = await supabase.storage
           .from('clearance-files')
           .upload(filePath, file);
-
-        if (uploadError) {
-          console.error('File upload error:', uploadError);
-          continue;
-        }
-
-        // Save file record
+        if (uploadError) continue;
         await supabase.from('clearance_files').insert({
           clearance_request_id: clearanceData.id,
           file_name: file.name,
@@ -183,12 +186,14 @@ export default function NewClearance() {
         });
       }
 
-      // Create signature requests from admin-assigned default signatories
-      const signatureInserts = defaultSignatories.map((sig) => ({
+      const selectedSignatories = signatories.filter((s) => selectedSignatoryIds.has(s.id));
+      const signatureInserts = selectedSignatories.map((sig) => ({
         clearance_request_id: clearanceData.id,
         signatory_id: sig.id,
         status: 'pending' as const,
         sequence_order: sig.order,
+        signatory_group: sig.signatory_group || 'standard',
+        authority_sequence_order: sig.authority_sequence_order ?? null,
       }));
 
       const { error: signaturesError } = await supabase
@@ -197,48 +202,53 @@ export default function NewClearance() {
 
       if (signaturesError) throw signaturesError;
 
-      // Send email notifications to signatories (fire and forget)
       supabase.functions.invoke('notify-signatories', {
         body: {
           clearance_request_id: clearanceData.id,
-          signatory_ids: defaultSignatories.map((s) => s.id),
+          signatory_ids: selectedSignatories.map((s) => s.id),
         },
-      }).then((result) => {
-        if (result.error) {
-          console.error('Failed to send notifications:', result.error);
-        }
-      });
+      }).catch(console.error);
 
-      toast.success('Clearance request submitted successfully!');
-      navigate('/dashboard');
+      toast.success('Clearance request submitted! View status in My Requests.');
+      navigate('/dashboard/clearances');
     } catch (error) {
       console.error('Error creating clearance:', error);
-      toast.error('Failed to create clearance request');
+      toast.error('Failed to submit request');
     } finally {
       setLoading(false);
-      setPendingData(null);
     }
   };
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
-        {/* Header */}
+      <div className="app-page">
         <div className="flex items-center gap-4 mb-8">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="rounded-lg shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label="Go back"
+          >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-display font-bold">New Clearance Request</h1>
-            <p className="text-muted-foreground">Submit your clearance for approval</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight text-foreground">
+              New Clearance Request
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
+              Upload documents and choose signatories for your request
+            </p>
           </div>
         </div>
 
         {allowNewClearance === false && (
-          <Card className="shadow-card border-warning/50 bg-warning/5 mb-6">
+          <Card className="app-surface mb-6 border-warning/30 bg-warning/5">
             <CardContent className="pt-6">
-              <p className="text-foreground font-medium">Only one pending clearance at a time is allowed.</p>
-              <p className="text-sm text-muted-foreground mt-1">Complete or cancel your current request before submitting a new one.</p>
+              <p className="font-medium">Only one pending request at a time is allowed.</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Complete or cancel your current request before submitting a new one.
+              </p>
               <Button variant="outline" className="mt-4" onClick={() => navigate('/dashboard/clearances')}>
                 View my clearances
               </Button>
@@ -246,87 +256,41 @@ export default function NewClearance() {
           </Card>
         )}
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleReviewSubmit)} className="space-y-6">
-            {/* Basic Info */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-lg">Request Details</CardTitle>
-                <CardDescription>Provide information about your clearance request</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="e.g., Semester Clearance - 2nd Sem 2024"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Add any additional notes or context..."
-                          rows={3}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
-
-            {/* File Upload */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-lg">Supporting Documents</CardTitle>
-                <CardDescription>Upload any required documents</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
-                  <input
-                    type="file"
-                    multiple
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-sm font-medium">Click to upload files</p>
-                    <p className="text-xs text-muted-foreground mt-1">PDF, DOC, or images</p>
-                  </label>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+          <div className="xl:col-span-1 space-y-6">
+            <Card className="app-surface">
+              <CardHeader className="pb-4 border-b border-border/60">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-muted p-2.5 text-primary">
+                    <Upload className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-semibold">Supporting Documents</CardTitle>
+                    <CardDescription>Upload any required documents for your clearance</CardDescription>
+                  </div>
                 </div>
-
+              </CardHeader>
+              <CardContent className="space-y-4 pt-6">
+                <label className="block">
+                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/40">
+                    <input type="file" multiple onChange={handleFileChange} className="hidden" />
+                    <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="font-medium text-sm">Click to upload files</p>
+                    <p className="text-xs text-muted-foreground mt-1">PDF, DOC, or images</p>
+                  </div>
+                </label>
                 {files.length > 0 && (
-                  <div className="mt-4 space-y-2">
+                  <div className="space-y-2">
                     {files.map((file, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border/60"
                       >
-                        <div className="flex items-center gap-3">
-                          <FileText className="h-5 w-5 text-primary" />
-                          <div>
-                            <p className="text-sm font-medium">{file.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {(file.size / 1024).toFixed(1)} KB
-                            </p>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FileText className="h-5 w-5 text-primary shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
                           </div>
                         </div>
                         <Button
@@ -334,6 +298,7 @@ export default function NewClearance() {
                           variant="ghost"
                           size="icon"
                           onClick={() => removeFile(index)}
+                          className="shrink-0 rounded-lg hover:bg-destructive/10 hover:text-destructive"
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -344,168 +309,155 @@ export default function NewClearance() {
               </CardContent>
             </Card>
 
-            {/* Signatories (assigned by admin — students cannot choose) */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display text-lg">Required Signatories</CardTitle>
-                <CardDescription>
-                  Signatories are assigned by the administrator. Your clearance will be sent to them in the set order.
-                </CardDescription>
+            <Card className="app-surface">
+              <CardHeader className="pb-4 border-b border-border/60">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-muted p-2.5 text-primary">
+                    <MessageSquare className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-semibold">Custom Message</CardTitle>
+                    <CardDescription>Optional note to include with your request</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
-                {loadingSignatories ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  </div>
-                ) : defaultSignatories.length === 0 ? (
-                  <div className="text-center py-8 rounded-lg bg-muted/50">
-                    <p className="text-muted-foreground">No signatories have been assigned yet.</p>
-                    <p className="text-sm text-muted-foreground mt-1">Contact the administrator to set up clearance signatories.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {defaultSignatories.map((sig, index) => (
-                      <div key={sig.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-sm font-bold">
-                          {index + 1}
-                        </div>
-                        <div className="p-1.5 bg-primary/10 rounded-full">
-                          <User className="h-4 w-4 text-primary" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{sig.name}</p>
-                          <p className="text-sm text-muted-foreground">{sig.position} • {sig.department}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <CardContent className="pt-6">
+                <Textarea
+                  placeholder="Add any notes or context for the signatories..."
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  rows={4}
+                  className="rounded-lg resize-none"
+                />
               </CardContent>
             </Card>
+          </div>
 
-            {/* Submit */}
-            <div className="flex justify-end gap-4">
-              <Button type="button" variant="outline" onClick={() => navigate(-1)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="hero" size="lg" disabled={loading || defaultSignatories.length === 0 || allowNewClearance === false}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Eye className="h-4 w-4 mr-2" />
-                    Review & Submit
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </Form>
-
-        {/* Confirmation Dialog */}
-        <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="font-display">Confirm Submission</DialogTitle>
-              <DialogDescription>
-                Please review your clearance request before submitting
-              </DialogDescription>
-            </DialogHeader>
-            
-            <ScrollArea className="max-h-[60vh]">
-              <div className="space-y-4 pr-4">
-                {/* Title & Description */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-muted-foreground">Title</h4>
-                  <p className="font-medium">{pendingData?.title}</p>
-                </div>
-                
-                {pendingData?.description && (
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium text-muted-foreground">Description</h4>
-                    <p className="text-sm">{pendingData.description}</p>
+          <div className="xl:col-span-2">
+            <Card className="app-surface h-full flex flex-col">
+              <CardHeader className="pb-4 border-b border-border/60">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-lg bg-muted p-2.5 text-primary">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg font-semibold">Required Signatories</CardTitle>
+                      <CardDescription>Select signatories to send your clearance request to</CardDescription>
+                    </div>
                   </div>
-                )}
-
-                <Separator />
-
-                {/* Files */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-muted-foreground">
-                    Attached Files ({files.length})
-                  </h4>
-                  {files.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">No files attached</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {files.map((file, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-sm">
-                          <FileText className="h-4 w-4 text-primary" />
-                          <span>{file.name}</span>
-                          <span className="text-muted-foreground">
-                            ({(file.size / 1024).toFixed(1)} KB)
-                          </span>
-                        </div>
-                      ))}
+                  {signatories.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="select-all"
+                          checked={selectedSignatoryIds.size === signatories.length}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                        <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                          Select all
+                        </label>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {selectedSignatoryIds.size} of {signatories.length} selected
+                      </span>
                     </div>
                   )}
                 </div>
-
-                <Separator />
-
-                {/* Signatories with sequence */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-muted-foreground">
-                    Signing Sequence ({defaultSignatories.length} signatories)
-                  </h4>
-                  <div className="space-y-2">
-                    {defaultSignatories.map((sig) => (
-                      <div key={sig.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
-                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                          {sig.order}
-                        </div>
-                        <div className="p-1.5 bg-primary/10 rounded-full">
-                          <User className="h-3 w-3 text-primary" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{sig.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {sig.position} • {sig.department}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+              </CardHeader>
+              <CardContent className="pt-6 flex-1 flex flex-col">
+                {loadingSignatories ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Each signatory can only sign after the previous one has approved.
-                  </p>
-                </div>
-              </div>
-            </ScrollArea>
-
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
-                Go Back
-              </Button>
-              <Button variant="hero" onClick={onSubmit} disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
+                ) : signatories.length === 0 ? (
+                  <div className="text-center py-16 rounded-xl bg-muted/30 border border-dashed border-border">
+                    <User className="h-12 w-12 mx-auto text-muted-foreground/50" />
+                    <p className="mt-4 font-medium">No signatories assigned</p>
+                    <p className="text-sm text-muted-foreground mt-1">Contact the administrator to set up signatories.</p>
+                  </div>
                 ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Submit Request
-                  </>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {signatories.map((sig, index) => {
+                      const isSelected = selectedSignatoryIds.has(sig.id);
+                      return (
+                        <div
+                          key={sig.id}
+                          className={`flex items-center gap-4 p-4 rounded-xl border transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                              : 'border-border/60 bg-card hover:bg-muted/30'
+                          }`}
+                          onClick={() => toggleSignatory(sig.id)}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSignatory(sig.id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div
+                              className={`flex items-center justify-center h-9 w-9 rounded-full text-sm font-semibold shrink-0 ${
+                                isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                              }`}
+                            >
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium truncate">{sig.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {sig.position} • {sig.department}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant={isSelected ? 'default' : 'outline'}
+                            size="sm"
+                            className="rounded-lg shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSignatory(sig.id);
+                            }}
+                          >
+                            {isSelected ? 'Selected' : 'Request'}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
+                <div className="mt-8 pt-6 border-t border-border/60 flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center">
+                  <Button variant="outline" onClick={() => navigate(-1)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={
+                      loading ||
+                      signatories.length === 0 ||
+                      selectedSignatoryIds.size === 0 ||
+                      allowNewClearance === false
+                    }
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-2" />
+                        Submit request ({selectedSignatoryIds.size} signatories)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

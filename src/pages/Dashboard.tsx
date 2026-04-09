@@ -16,7 +16,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate('/auth');
+      navigate('/');
     }
   }, [user, authLoading, navigate]);
 
@@ -52,7 +52,7 @@ export default function Dashboard() {
             className="mt-6"
             onClick={async () => {
               await signOut();
-              navigate('/auth');
+              navigate('/');
             }}
           >
             Sign out

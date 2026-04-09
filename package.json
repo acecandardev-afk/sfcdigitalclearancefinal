@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "seed": "npx tsx scripts/seed-test-users.ts",
+    "seed:signatories": "npx tsx scripts/seed-signatories.ts",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview"

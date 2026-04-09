@@ -2,21 +2,33 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
-import { Loader2, Mail, Lock, FileCheck } from 'lucide-react';
+import { Loader2, Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
-/** Background image: public/background.jpg */
-const BG_IMAGE = '/background.jpg';
+const BG_IMAGE = '/Screenshot%202026-03-04%20104258.png';
 
 /**
- * Full-page login with glassmorphism.
- * /auth shows this page; password reset lands here with ?reset=1.
+ * Full-page login with two-column layout and glassmorphism card.
+ * /auth shows this page; password reset lands here.
  */
 export default function Auth() {
   const navigate = useNavigate();
   const { user, loading, signIn, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState('student');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
@@ -63,11 +75,7 @@ export default function Auth() {
         <div className="fixed top-4 right-4 z-50 text-white [&_button]:text-white/90 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
           <ThemeToggle />
         </div>
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50"
-          style={{ backgroundImage: `url(${BG_IMAGE})` }}
-          aria-hidden
-        />
+        <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${BG_IMAGE})` }} aria-hidden />
         <div className="absolute inset-0 bg-black/50" aria-hidden />
         <div className="relative z-10 flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-white" />
@@ -83,176 +91,247 @@ export default function Auth() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden">
-      {/* Light/dark toggle - fixed top-right */}
       <div className="fixed top-4 right-4 z-50 text-white [&_button]:text-white/90 [&_button:hover]:text-white [&_button:hover]:bg-white/10">
         <ThemeToggle />
       </div>
 
-      {/* Background image with lower opacity */}
+      {/* Full-screen background */}
       <div
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50"
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: `url(${BG_IMAGE})` }}
         aria-hidden
       />
-      {/* Dark overlay for readability */}
       <div className="absolute inset-0 bg-black/50" aria-hidden />
 
-      {/* Login card - glassmorphism */}
-      <div
-        className="relative z-10 w-[90%] max-w-[400px] rounded-2xl p-8 shadow-2xl border border-white/20"
-        style={{
-          background: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-        }}
-      >
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="p-2 rounded-xl bg-white/20">
-            <FileCheck className="h-6 w-6 text-white" />
-          </div>
-          <span className="text-xl font-semibold text-white" style={{ fontFamily: 'Inter, sans-serif' }}>
-            SFC-G DCS
-          </span>
-        </div>
-
-        {showForgot ? (
-          forgotSent ? (
-            <div className="space-y-6 text-center">
-              <h1 className="text-xl font-semibold text-white" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Check your email
-              </h1>
-              <p className="text-sm text-white/80">
-                We sent a link to your email. Use it to set a new password.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForgot(false);
-                  setForgotSent(false);
-                }}
-                className="w-full py-3 px-4 rounded-xl text-white font-medium transition-all duration-200 hover:bg-white/20"
-                style={{ background: 'rgba(255,255,255,0.15)' }}
-              >
-                Back to sign in
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleForgot} className="space-y-5">
-              <h1 className="text-xl font-semibold text-white text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Reset password
-              </h1>
-              <p className="text-sm text-white/80 text-center">
-                Enter your email and we'll send you a reset link.
-              </p>
-              <div className="space-y-2">
-                <label htmlFor="forgot-email" className="text-sm font-medium text-white/90">
-                  Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                  <input
-                    id="forgot-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
-                    style={{ background: 'rgba(255,255,255,0.08)' }}
-                    required
-                  />
+      {/* Foreground content - centered */}
+      <div className="relative z-10 flex items-center justify-center w-full max-w-6xl">
+        {/* Main frame container */}
+        <div className="w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl flex flex-col bg-black/10 backdrop-blur-sm">
+          {/* Content area - flex-1 */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-[520px]">
+            {/* Left branding section */}
+            <div className="lg:col-span-7 flex items-center px-8 py-10 lg:py-14">
+              <div className="space-y-6">
+                <div className="flex-shrink-0">
+                  <img src="/logo4.png" alt="" className="h-20 w-20 object-contain" />
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowForgot(false)}
-                  className="flex-1 py-3 px-4 rounded-xl text-white font-medium border border-white/30 hover:bg-white/10 transition-all duration-200"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="flex-1 py-3 px-4 rounded-xl text-white font-medium bg-white/25 hover:bg-white/35 transition-all duration-200 disabled:opacity-70 flex items-center justify-center gap-2"
-                >
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send reset link'}
-                </button>
-              </div>
-            </form>
-          )
-        ) : (
-          <form onSubmit={handleLogin} className="space-y-5">
-            <h1 className="text-xl font-semibold text-white text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Sign in
-            </h1>
-            <p className="text-sm text-white/80 text-center">
-              Use the account created for you by the administrator.
-            </p>
-
-            <div className="space-y-2">
-              <label htmlFor="login-email" className="text-sm font-medium text-white/90">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                <input
-                  id="login-email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
-                  style={{ background: 'rgba(255,255,255,0.08)' }}
-                  required
-                />
+                <h1 className="text-3xl lg:text-4xl font-bold text-white tracking-tight">
+                  SAINT FRANCIS COLLEGE
+                </h1>
+                <p className="text-white/90 text-sm font-medium">Guihulngan, Negros Oriental</p>
+                <p className="text-white/70 text-sm max-w-md leading-relaxed">
+                  Digital Clearance Platform for Academic and Administrative Stakeholders
+                </p>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label htmlFor="login-password" className="text-sm font-medium text-white/90">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowForgot(true)}
-                  className="text-xs text-white/80 hover:text-white hover:underline transition-colors"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                <input
-                  id="login-password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder:text-white/50 border border-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40"
-                  style={{ background: 'rgba(255,255,255,0.08)' }}
-                  required
-                />
+            {/* Right login section */}
+            <div className="lg:col-span-5 flex items-center justify-center px-6 py-10">
+              {/* Glassmorphism card - translucent, blurred background visible through */}
+              <div
+                className="w-full max-w-sm rounded-2xl border border-white/20 shadow-xl p-6"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                }}
+              >
+                {/* Card header - two logos, title, subtitle */}
+                <div className="flex flex-col items-center mb-6">
+                  <div className="flex items-center justify-center gap-3 mb-3">
+                    <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-white/30 flex items-center justify-center bg-white/20">
+                      <img src="/logo4.png" alt="" className="h-8 w-8 object-contain" />
+                    </div>
+                    <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-white/30 flex items-center justify-center bg-white/20">
+                      <img src="/logo5.png" alt="" className="h-8 w-8 object-contain" />
+                    </div>
+                  </div>
+                  <h2 className="text-xl font-semibold text-white">
+                    E-CLEAR <span className="text-amber-400">SFCG</span>
+                  </h2>
+                  <p className="text-sm text-white/80 mt-1">
+                    Sign in as <span className="text-amber-400 font-medium">Student</span>
+                  </p>
+                </div>
+
+                {showForgot ? (
+                  forgotSent ? (
+                    <div className="space-y-5 text-center">
+                      <h3 className="text-lg font-semibold text-white">Check your email</h3>
+                      <p className="text-sm text-white/80">
+                        We sent a link to your email. Use it to set a new password.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-white/30 text-white hover:bg-white/10"
+                        onClick={() => {
+                          setShowForgot(false);
+                          setForgotSent(false);
+                        }}
+                      >
+                        Back to sign in
+                      </Button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleForgot} className="space-y-5">
+                      <h3 className="text-lg font-semibold text-white text-center">Reset password</h3>
+                      <p className="text-sm text-white/80 text-center">
+                        Enter your email and we will send you a reset link.
+                      </p>
+                      <div className="space-y-2">
+                        <label htmlFor="forgot-email" className="text-sm font-medium text-white/90">
+                          Email
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                          <Input
+                            id="forgot-email"
+                            type="email"
+                            placeholder="you@example.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/40"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex-1 border-white/30 text-white hover:bg-white/10"
+                          onClick={() => setShowForgot(false)}
+                        >
+                          Back
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={isLoading}
+                          className="flex-1 bg-white/25 hover:bg-white/35 text-white border-0"
+                        >
+                          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send reset link'}
+                        </Button>
+                      </div>
+                    </form>
+                  )
+                ) : (
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="login-userid" className="text-sm font-medium text-white/90">
+                        User Id
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                        <Input
+                          id="login-userid"
+                          type="email"
+                          placeholder="Enter your ID number"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/40"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="login-password" className="text-sm font-medium text-white/90">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                        <Input
+                          id="login-password"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="pl-10 pr-10 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/40"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((p) => !p)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/70 hover:text-white"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Remember me + Forgot password row */}
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <Checkbox
+                          checked={rememberMe}
+                          onCheckedChange={(c) => setRememberMe(!!c)}
+                          className="border-white/40 data-[state=checked]:bg-white/20 data-[state=checked]:border-white/40"
+                        />
+                        <span className="text-sm text-white/80">Remember me</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowForgot(true)}
+                        className="text-xs text-white/80 hover:text-white hover:underline"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+
+                    {/* Role select + Sign In button row */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <label htmlFor="role-select" className="sr-only">Role</label>
+                        <Select value={role} onValueChange={setRole}>
+                          <SelectTrigger
+                            id="role-select"
+                            className="bg-white/10 border-white/20 text-white h-10 justify-start gap-2 [&>span]:text-white/90"
+                          >
+                            <User className="h-4 w-4 text-white/70 shrink-0" />
+                            <SelectValue placeholder="Role" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-gray-900 border-white/20">
+                            <SelectItem value="student" className="text-white focus:bg-white/10">Student</SelectItem>
+                            <SelectItem value="signatory" className="text-white focus:bg-white/10">Signatory</SelectItem>
+                            <SelectItem value="superadmin" className="text-white focus:bg-white/10">Superadmin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        type="submit"
+                        disabled={isLoading}
+                        className="bg-white/30 hover:bg-white/40 text-white border-0 h-10 px-6 shrink-0"
+                      >
+                        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                          <>
+                            Sign In
+                            <ArrowRight className="h-4 w-4 ml-1" />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    <p className="text-center text-sm text-white/70 pt-1">
+                      Don&apos;t have an account?{' '}
+                      <Link to="/" className="text-amber-400 font-medium hover:underline">
+                        Sign Up
+                      </Link>
+                    </p>
+                  </form>
+                )}
               </div>
             </div>
+          </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl text-white font-semibold bg-white/25 hover:bg-white/35 transition-all duration-200 disabled:opacity-70 flex items-center justify-center gap-2"
-            >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Login'}
-            </button>
-
-            <p className="text-center text-sm text-white/70">
-              Don't have an account?{' '}
-              <Link to="/" className="text-white font-medium hover:underline">
-                Contact administrator
-              </Link>
+          {/* Footer strip */}
+          <footer className="bg-amber-700/80 py-3 px-4 text-center shrink-0">
+            <p className="text-xs text-white/90">
+              EST - 1962 - DEUS MEUS ET OMNIA | © 2026 Saint Francis College Guihulngan - Student Digital Clearance
             </p>
-          </form>
-        )}
+          </footer>
+        </div>
       </div>
     </div>
   );

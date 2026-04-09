@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
-  FileCheck,
   LayoutDashboard,
   FileText,
   Users,
@@ -18,6 +17,7 @@ import {
   User,
   Bell,
   CheckCircle,
+  UserCheck,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -50,7 +50,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/auth');
+    navigate('/');
   };
 
   const getInitials = (email: string) => {
@@ -59,30 +59,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    ...(isStudent() ? [{ path: '/dashboard/clearances', label: 'My Clearances', icon: FileText }] : []),
-    ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'Pending Requests', icon: Bell }] : []),
-    ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Approved', icon: CheckCircle }] : []),
+    ...(isStudent() ? [{ path: '/dashboard/clearances', label: 'My Requests', icon: FileText }] : []),
+    ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'To Sign', icon: Bell }] : []),
+    ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Signed', icon: CheckCircle }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/students', label: 'Students', icon: User }] : []),
+    ...(isSuperAdmin() ? [{ path: '/dashboard/bulk-assign', label: 'Bulk Assign', icon: UserCheck }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/settings', label: 'Settings', icon: Settings }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Mobile header */}
-      <header className="lg:hidden sticky top-0 z-50 bg-card border-b border-border shadow-card">
+    <div className="min-h-screen bg-background/77">
+      {/* Header with hamburger - always visible */}
+      <header className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
-            <Link to="/dashboard" className="flex items-center gap-2">
-              <FileCheck className="h-6 w-6 text-primary" />
-              <span className="font-display font-bold text-lg">Saint Francis College - Guihulngan Digital Clearance System</span>
+            <Link to="/dashboard" className="flex items-center gap-2 shrink-0">
+              <img src="/logo4.png" alt="" className="h-9 w-9 object-contain shrink-0" />
+              <span className="font-semibold text-base truncate">E-CLEAR SFCG</span>
             </Link>
           </div>
           <div className="flex items-center gap-2">
@@ -116,24 +118,25 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </header>
 
       <div className="flex">
-        {/* Sidebar */}
+        {/* Sidebar - overlay, shown only when hamburger is clicked */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-40 w-64 bg-sidebar text-sidebar-foreground transform transition-transform duration-300 lg:translate-x-0 lg:static',
+            'fixed inset-y-0 left-0 z-40 w-64 max-w-[85vw] bg-sidebar text-sidebar-foreground transform transition-transform duration-300 ease-out pt-16',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           )}
         >
           <div className="flex flex-col h-full">
             {/* Logo */}
-            <div className="hidden lg:flex items-center gap-3 p-6 border-b border-sidebar-border">
-              <div className="p-2 bg-sidebar-primary/10 rounded-lg">
-                <FileCheck className="h-6 w-6 text-sidebar-primary" />
+            <div className="flex flex-col gap-2 p-6 border-b border-sidebar-border">
+              <div className="flex items-center gap-2">
+                <img src="/logo4.png" alt="" className="h-10 w-10 object-contain shrink-0" />
+                <span className="font-semibold text-base">E-CLEAR SFCG</span>
               </div>
-              <span className="font-display font-bold text-xl">Saint Francis College Guihulgan - Digital Clearance System</span>
+              <span className="text-xs text-sidebar-foreground/70">Digital Clearance System</span>
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 p-4 space-y-1 mt-16 lg:mt-0">
+            <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -143,10 +146,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     to={item.path}
                     onClick={() => setSidebarOpen(false)}
                     className={cn(
-                      'flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200',
+                      'flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium',
                       isActive
                         ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
-                        : 'hover:bg-sidebar-accent text-sidebar-foreground/80 hover:text-sidebar-foreground'
+                        : 'hover:bg-sidebar-accent text-sidebar-foreground/90 hover:text-sidebar-foreground'
                     )}
                   >
                     <Icon className="h-5 w-5" />
@@ -168,7 +171,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{user?.email}</p>
                   <p className="text-xs text-sidebar-foreground/60">
-                    {isSuperAdmin() ? 'Admin' : isSignatory() ? 'Signatory' : 'Student'}
+                    {isSuperAdmin() ? 'Administrator' : isSignatory() ? 'Signatory' : 'Student'}
                   </p>
                 </div>
               </div>
@@ -184,16 +187,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </aside>
 
-        {/* Overlay */}
+        {/* Overlay - closes sidebar when clicking outside */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-foreground/20 backdrop-blur-sm z-30 lg:hidden"
+            className="fixed inset-0 bg-foreground/20 backdrop-blur-sm z-30"
             onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
           />
         )}
 
-        {/* Main content */}
-        <main className="flex-1 min-h-screen lg:min-h-[calc(100vh)]">
+        {/* Main content - 100% width */}
+        <main className="flex-1 min-w-0 w-full min-h-screen bg-background">
           {children}
         </main>
       </div>

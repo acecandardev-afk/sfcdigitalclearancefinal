@@ -76,7 +76,8 @@ interface ActivityLog {
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useUserRole();
+  const { roles, loading: roleLoading } = useUserRole();
+  const isSuperAdminUser = roles.includes('superadmin');
   const [saving, setSaving] = useState(false);
 
   // System settings state
@@ -333,14 +334,14 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    if (!roleLoading && !isSuperAdmin()) {
+    if (!roleLoading && !isSuperAdminUser) {
       navigate('/dashboard');
-    } else if (!roleLoading && isSuperAdmin()) {
+    } else if (!roleLoading && isSuperAdminUser) {
       fetchUsers();
       fetchActivityLogs();
       fetchSettings();
     }
-  }, [roleLoading, isSuperAdmin, navigate]);
+  }, [roleLoading, isSuperAdminUser, navigate]);
 
   const handleSaveGeneral = async () => {
     setSaving(true);
@@ -434,17 +435,19 @@ export default function Settings() {
     );
   }
 
-  if (!isSuperAdmin()) {
+  if (!isSuperAdminUser) {
     return null;
   }
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-4xl">
+      <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-display font-bold flex items-center gap-3">
-            <SettingsIcon className="h-7 w-7 text-primary" />
+          <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <SettingsIcon className="h-6 w-6 text-primary" />
+            </div>
             System Settings
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -453,24 +456,24 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-            <TabsTrigger value="general" className="gap-2">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid rounded-xl p-1 bg-muted/50">
+            <TabsTrigger value="general" className="gap-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
             </TabsTrigger>
-            <TabsTrigger value="users" className="gap-2">
+            <TabsTrigger value="users" className="gap-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Users className="h-4 w-4" />
               <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
-            <TabsTrigger value="activity" className="gap-2">
+            <TabsTrigger value="activity" className="gap-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Activity className="h-4 w-4" />
               <span className="hidden sm:inline">Activity</span>
             </TabsTrigger>
-            <TabsTrigger value="notifications" className="gap-2">
+            <TabsTrigger value="notifications" className="gap-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Bell className="h-4 w-4" />
               <span className="hidden sm:inline">Notifications</span>
             </TabsTrigger>
-            <TabsTrigger value="security" className="gap-2">
+            <TabsTrigger value="security" className="gap-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Shield className="h-4 w-4" />
               <span className="hidden sm:inline">Security</span>
             </TabsTrigger>
@@ -478,9 +481,9 @@ export default function Settings() {
 
           {/* General Settings */}
           <TabsContent value="general">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display">General Settings</CardTitle>
+            <Card className="border border-border/50 rounded-xl shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold">General Settings</CardTitle>
                 <CardDescription>
                   Basic system configuration and institution details
                 </CardDescription>
@@ -493,6 +496,7 @@ export default function Settings() {
                     value={systemName}
                     onChange={(e) => setSystemName(e.target.value)}
                     placeholder="Digital Clearance System"
+                    className="rounded-xl"
                   />
                   <p className="text-xs text-muted-foreground">
                     This name appears in the header and emails
@@ -506,6 +510,7 @@ export default function Settings() {
                     value={institutionName}
                     onChange={(e) => setInstitutionName(e.target.value)}
                     placeholder="Your School or University"
+                    className="rounded-xl"
                   />
                 </div>
 
@@ -519,6 +524,7 @@ export default function Settings() {
                     value={adminEmail}
                     onChange={(e) => setAdminEmail(e.target.value)}
                     placeholder="admin@example.edu"
+                    className="rounded-xl"
                   />
                   <p className="text-xs text-muted-foreground">
                     This email receives system notifications and error reports
@@ -526,7 +532,7 @@ export default function Settings() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleSaveGeneral} disabled={saving}>
+                  <Button onClick={handleSaveGeneral} disabled={saving} className="rounded-xl">
                     {saving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -546,10 +552,12 @@ export default function Settings() {
 
           {/* User Management */}
           <TabsContent value="users">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display flex items-center gap-2">
-                  <UserCog className="h-5 w-5 text-primary" />
+            <Card className="border border-border/50 rounded-xl shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <UserCog className="h-5 w-5 text-primary" />
+                  </div>
                   User Management
                 </CardTitle>
                 <CardDescription>
@@ -557,13 +565,13 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="relative">
+                <div className="relative max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search users by name or email..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 rounded-xl border-border/60"
                   />
                 </div>
 
@@ -572,7 +580,7 @@ export default function Settings() {
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border border-border/50 rounded-xl overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -621,6 +629,7 @@ export default function Settings() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleEditRoles(user)}
+                                  className="rounded-xl"
                                 >
                                   <UserCog className="h-4 w-4 mr-1" />
                                   Manage Roles
@@ -639,10 +648,12 @@ export default function Settings() {
 
           {/* Activity Logs */}
           <TabsContent value="activity">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-primary" />
+            <Card className="border border-border/50 rounded-xl shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Activity className="h-5 w-5 text-primary" />
+                  </div>
                   Activity Logs
                 </CardTitle>
                 <CardDescription>
@@ -657,13 +668,13 @@ export default function Settings() {
                       placeholder="Search by user or action..."
                       value={logSearchQuery}
                       onChange={(e) => setLogSearchQuery(e.target.value)}
-                      className="pl-10"
+                      className="pl-10 rounded-xl border-border/60"
                     />
                   </div>
                   <select
                     value={actionFilter}
                     onChange={(e) => setActionFilter(e.target.value)}
-                    className="h-10 px-3 rounded-md border border-input bg-background text-sm"
+                    className="h-10 px-4 rounded-xl border border-border/60 bg-background text-sm"
                   >
                     <option value="all">All Actions</option>
                     {uniqueActions.map((action) => (
@@ -672,7 +683,7 @@ export default function Settings() {
                       </option>
                     ))}
                   </select>
-                  <Button variant="outline" onClick={fetchActivityLogs} disabled={loadingLogs}>
+                  <Button variant="outline" onClick={fetchActivityLogs} disabled={loadingLogs} className="rounded-xl">
                     {loadingLogs ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
                   </Button>
                 </div>
@@ -682,7 +693,7 @@ export default function Settings() {
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border border-border/50 rounded-xl overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -745,10 +756,12 @@ export default function Settings() {
 
           {/* Notification Settings */}
           <TabsContent value="notifications">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display flex items-center gap-2">
-                  <Mail className="h-5 w-5 text-primary" />
+            <Card className="border border-border/50 rounded-xl shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Mail className="h-5 w-5 text-primary" />
+                  </div>
                   Email Notifications
                 </CardTitle>
                 <CardDescription>
@@ -776,9 +789,9 @@ export default function Settings() {
                   
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>New Clearance Submission</Label>
+                      <Label>New Request Submission</Label>
                       <p className="text-sm text-muted-foreground">
-                        Notify signatories when a student submits a clearance
+                        Notify signatories when a student submits a request
                       </p>
                     </div>
                     <Switch
@@ -790,9 +803,9 @@ export default function Settings() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Clearance Approved</Label>
+                      <Label>Request Approved</Label>
                       <p className="text-sm text-muted-foreground">
-                        Notify students when their clearance is approved
+                        Notify students when their request is approved
                       </p>
                     </div>
                     <Switch
@@ -804,9 +817,9 @@ export default function Settings() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Clearance Rejected</Label>
+                      <Label>Request Rejected</Label>
                       <p className="text-sm text-muted-foreground">
-                        Notify students when their clearance is rejected
+                        Notify students when their request is rejected
                       </p>
                     </div>
                     <Switch
@@ -818,7 +831,7 @@ export default function Settings() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleSaveNotifications} disabled={saving}>
+                  <Button onClick={handleSaveNotifications} disabled={saving} className="rounded-xl">
                     {saving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -838,22 +851,24 @@ export default function Settings() {
 
           {/* Security Settings */}
           <TabsContent value="security">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="font-display flex items-center gap-2">
-                  <Database className="h-5 w-5 text-primary" />
-                  Clearance Rules
+            <Card className="border border-border/50 rounded-xl shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Shield className="h-5 w-5 text-primary" />
+                  </div>
+                  Request Rules
                 </CardTitle>
                 <CardDescription>
-                  Configure clearance processing rules and requirements
+                  Configure request processing rules and requirements
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Require All Signatures</Label>
+                    <Label>Require All Approvals</Label>
                     <p className="text-sm text-muted-foreground">
-                      Students must collect all required signatures for approval
+                      Students must get approval from all required signatories
                     </p>
                   </div>
                   <Switch
@@ -866,9 +881,9 @@ export default function Settings() {
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Allow Multiple Active Clearances</Label>
+                    <Label>Allow Multiple Active Requests</Label>
                     <p className="text-sm text-muted-foreground">
-                      Students can submit multiple clearance requests simultaneously
+                      Students can submit multiple requests simultaneously
                     </p>
                   </div>
                   <Switch
@@ -888,7 +903,7 @@ export default function Settings() {
                     value={autoApproveAfterDays}
                     onChange={(e) => setAutoApproveAfterDays(e.target.value)}
                     placeholder="Leave empty to disable"
-                    className="max-w-[200px]"
+                    className="max-w-[200px] rounded-xl"
                   />
                   <p className="text-xs text-muted-foreground">
                     Automatically approve pending signatures after this many days. Leave empty to disable.
@@ -896,7 +911,7 @@ export default function Settings() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleSaveSecurity} disabled={saving}>
+                  <Button onClick={handleSaveSecurity} disabled={saving} className="rounded-xl">
                     {saving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -917,7 +932,7 @@ export default function Settings() {
 
         {/* Role Management Dialog */}
         <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-          <DialogContent>
+          <DialogContent className="rounded-2xl sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Manage User Roles</DialogTitle>
               <DialogDescription>
@@ -939,8 +954,8 @@ export default function Settings() {
                   <Label htmlFor={`role-${role}`} className="flex-1 cursor-pointer">
                     <span className="font-medium capitalize">{role}</span>
                     <p className="text-sm text-muted-foreground">
-                      {role === 'student' && 'Can submit clearance requests'}
-                      {role === 'signatory' && 'Can sign clearance requests'}
+                      {role === 'student' && 'Can submit requests'}
+                      {role === 'signatory' && 'Can sign requests'}
                       {role === 'superadmin' && 'Full system access and user management'}
                     </p>
                   </Label>
@@ -948,10 +963,10 @@ export default function Settings() {
               ))}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRoleDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setRoleDialogOpen(false)} className="rounded-xl">
                 Cancel
               </Button>
-              <Button onClick={handleSaveRoles} disabled={savingRoles}>
+              <Button onClick={handleSaveRoles} disabled={savingRoles} className="rounded-xl">
                 {savingRoles ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -181,7 +181,14 @@ export default function Signatories() {
       } else {
         const { error } = await supabase
           .from('signatories')
-          .insert([{ name: data.name, position: data.position, department: data.department, email: data.email, is_active: true }]);
+          .insert([{
+            name: data.name,
+            position: data.position,
+            department: data.department,
+            email: data.email,
+            is_active: true,
+            signatory_group: 'standard',
+          }]);
 
         if (error) throw error;
         toast.success('Signatory added successfully');
@@ -284,7 +291,7 @@ export default function Signatories() {
         sequence_order: nextOrder,
       });
       if (error) throw error;
-      toast.success(`${signatory.name} added to default clearance order`);
+      toast.success(`${signatory.name} added to default request order`);
       setAddDefaultDialogOpen(false);
       fetchDefaultSignatories();
     } catch (error) {
@@ -351,33 +358,35 @@ export default function Signatories() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-display font-bold">Manage Signatories</h1>
-            <p className="text-muted-foreground">Add, edit, or remove authorized signatories. Assign who signs student clearances.</p>
+            <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Manage Signatories</h1>
+            <p className="text-muted-foreground mt-1">Add, edit, or remove signatories. Assign who signs student requests.</p>
           </div>
-          <Button variant="hero" onClick={openAddDialog}>
+          <Button onClick={openAddDialog} className="shrink-0 rounded-xl shadow-sm">
             <Plus className="h-4 w-4 mr-2" />
             Add Signatory
           </Button>
         </div>
 
-        {/* Default signatories for clearances (admin-assigned; students cannot choose) */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
-              <ListOrdered className="h-5 w-5 text-primary" />
-              Default signatories for student clearances
+        {/* Default signatories for requests (admin-assigned; students cannot choose) */}
+        <Card className="border border-border/50 rounded-xl shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <ListOrdered className="h-5 w-5 text-primary" />
+              </div>
+              Default signatories for student requests
             </CardTitle>
-            <CardDescription>
-              Students cannot choose signatories. Set the signatories and order that will be used for every new clearance request.
+            <CardDescription className="text-muted-foreground/90">
+              Students cannot choose signatories. Set the signatories and order for every new request.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {defaultSignatories.length === 0 ? (
-              <div className="text-center py-6 rounded-lg bg-muted/50">
+              <div className="text-center py-10 border border-dashed border-border/70 rounded-xl bg-muted/20">
                 <p className="text-muted-foreground">No default signatories set.</p>
                 <p className="text-sm text-muted-foreground mt-1">Add signatories below; they will sign in the order you set.</p>
               </div>
@@ -386,7 +395,7 @@ export default function Signatories() {
                 {defaultSignatories.map((d, index) => (
                   <div
                     key={d.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/30 transition-colors"
+                    className="flex items-center justify-between p-4 rounded-xl border border-border/50 hover:bg-muted/40 hover:border-border/80 transition-all duration-200"
                   >
                     <div className="flex items-center gap-3">
                       <span className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-sm font-bold">
@@ -437,9 +446,10 @@ export default function Signatories() {
               size="sm"
               disabled={defaultOrderLoading || availableToAdd.length === 0}
               onClick={() => setAddDefaultDialogOpen(true)}
+              className="rounded-xl"
             >
               <UserPlus2 className="h-4 w-4 mr-2" />
-              Add signatory to clearance order
+              Add signatory to order
             </Button>
           </CardContent>
         </Card>
@@ -451,40 +461,41 @@ export default function Signatories() {
             placeholder="Search signatories..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
+            className="pl-10 rounded-xl border-border/60 focus-visible:ring-2"
           />
         </div>
 
         {/* Signatories List */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
+        <Card className="border border-border/50 rounded-xl shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
               Signatories ({filteredSignatories.length})
             </CardTitle>
-            <CardDescription>
-              Authorized personnel who can approve student clearances
+            <CardDescription className="text-muted-foreground/90">
+              Authorized personnel who can approve student requests
             </CardDescription>
           </CardHeader>
           <CardContent>
             {filteredSignatories.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="text-center py-14 border border-dashed border-border/70 rounded-xl bg-muted/20">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground/50" />
-                <h3 className="mt-4 text-lg font-semibold">No signatories found</h3>
-                <p className="text-muted-foreground mt-2">
+                <h3 className="mt-4 text-base font-semibold">No signatories found</h3>
+                <p className="text-muted-foreground mt-2 text-sm">
                   {searchQuery ? 'Try a different search term' : 'Add your first signatory to get started'}
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filteredSignatories.map((signatory, index) => (
+              <div className="space-y-2">
+                {filteredSignatories.map((signatory) => (
                   <div
                     key={signatory.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors gap-4 animate-slide-up"
-                    style={{ animationDelay: `${index * 0.03}s` }}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border/50 hover:bg-muted/40 hover:border-border/80 transition-all duration-200 gap-4"
                   >
                     <div className="flex items-start gap-4">
-                      <div className="p-2 bg-primary/10 rounded-lg">
+                      <div className="p-2.5 bg-primary/10 rounded-xl shrink-0">
                         <Users className="h-5 w-5 text-primary" />
                       </div>
                       <div>
@@ -516,6 +527,7 @@ export default function Signatories() {
                           variant="default"
                           size="sm"
                           onClick={() => openAccountDialog(signatory)}
+                          className="rounded-xl"
                         >
                           <UserPlus className="h-4 w-4 mr-1" />
                           Create Account
@@ -525,6 +537,7 @@ export default function Signatories() {
                         variant="outline"
                         size="sm"
                         onClick={() => toggleStatus(signatory)}
+                        className="rounded-xl"
                       >
                         {signatory.is_active ? 'Deactivate' : 'Activate'}
                       </Button>
@@ -554,9 +567,9 @@ export default function Signatories() {
 
       {/* Add/Edit Signatory Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-display">
+            <DialogTitle>
               {selectedSignatory ? 'Edit Signatory' : 'Add New Signatory'}
             </DialogTitle>
             <DialogDescription>
@@ -620,10 +633,10 @@ export default function Signatories() {
                 )}
               />
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="rounded-xl">
                   Cancel
                 </Button>
-                <Button type="submit" disabled={formLoading}>
+                <Button type="submit" disabled={formLoading} className="rounded-xl">
                   {formLoading ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -643,9 +656,9 @@ export default function Signatories() {
 
       {/* Create Account Dialog */}
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-display">Create Account for Signatory</DialogTitle>
+            <DialogTitle>Create Account for Signatory</DialogTitle>
             <DialogDescription>
               Create a login account for <strong>{selectedSignatory?.name}</strong>. They will use their email ({selectedSignatory?.email}) to sign in.
             </DialogDescription>
@@ -679,10 +692,10 @@ export default function Signatories() {
                 )}
               />
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setAccountDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setAccountDialogOpen(false)} className="rounded-xl">
                   Cancel
                 </Button>
-                <Button type="submit" disabled={formLoading}>
+                <Button type="submit" disabled={formLoading} className="rounded-xl">
                   {formLoading ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -700,9 +713,9 @@ export default function Signatories() {
 
       {/* Add to default order dialog */}
       <Dialog open={addDefaultDialogOpen} onOpenChange={setAddDefaultDialogOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display">Add signatory to clearance order</DialogTitle>
+            <DialogTitle>Add signatory to request order</DialogTitle>
             <DialogDescription>
               Choose a signatory to add to the default signing sequence. Only active signatories not already in the list are shown.
             </DialogDescription>
@@ -714,7 +727,7 @@ export default function Signatories() {
               availableToAdd.map((sig) => (
                 <div
                   key={sig.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50 cursor-pointer"
+                  className="flex items-center justify-between p-3 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 cursor-pointer transition-all duration-200"
                   onClick={() => addToDefaultOrder(sig)}
                 >
                   <div>
@@ -733,7 +746,7 @@ export default function Signatories() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Signatory</AlertDialogTitle>
             <AlertDialogDescription>

@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ClearanceFilesViewer from '@/components/dashboard/ClearanceFilesViewer';
+import ApprovedStamp from '@/components/clearance/ApprovedStamp';
+import { TERMS } from '@/lib/terms';
 
 interface Signatory {
   id: string;
@@ -46,6 +48,8 @@ interface Signature {
   remarks: string | null;
   sequence_order: number;
   signed_at: string | null;
+  signatory_group?: 'standard' | 'authority';
+  authority_sequence_order?: number | null;
   signatory: Signatory;
 }
 
@@ -88,25 +92,31 @@ export default function SignatoryClearanceDetail() {
   }, [user, id]);
 
   const fetchClearanceDetail = async () => {
+    if (!id || !user) return;
     try {
       // Get signatory ID for current user
       const { data: signatoryData } = await supabase
         .from('signatories')
         .select('id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .maybeSingle();
 
-      // Fetch clearance request
+      // Fetch clearance request (RLS: signatories see assigned, superadmins see all)
       const { data: clearanceData, error: clearanceError } = await supabase
         .from('clearance_requests')
         .select('*')
         .eq('id', id)
         .maybeSingle();
 
-      if (clearanceError) throw clearanceError;
+      if (clearanceError) {
+        console.error('Clearance fetch error:', clearanceError);
+        toast.error(clearanceError.message || 'Failed to load request');
+        setLoading(false);
+        return;
+      }
       if (!clearanceData) {
-        toast.error('Clearance not found');
-        navigate('/dashboard');
+        toast.error('Request not found. You may not have access or it was removed.');
+        setLoading(false);
         return;
       }
 
@@ -139,6 +149,8 @@ export default function SignatoryClearanceDetail() {
           remarks,
           sequence_order,
           signed_at,
+          signatory_group,
+          authority_sequence_order,
           signatories (
             id,
             name,
@@ -151,14 +163,14 @@ export default function SignatoryClearanceDetail() {
 
       if (signaturesError) throw signaturesError;
 
-      const processedSignatures = signaturesData.map((sig: any) => ({
+      const processedSignatures = (signaturesData || []).map((sig: any) => ({
         ...sig,
         signatory: sig.signatories,
       }));
 
       setSignatures(processedSignatures);
 
-      // Find my signature and check if I can sign
+      // Find my signature and check if I can sign (hybrid sequence logic)
       if (signatoryData) {
         const mySig = processedSignatures.find(
           (s: Signature) => s.signatory_id === signatoryData.id
@@ -166,21 +178,27 @@ export default function SignatoryClearanceDetail() {
         setMySignature(mySig || null);
 
         if (mySig && mySig.status === 'pending') {
-          // Check if all previous signatures are approved
-          const previousSigs = processedSignatures.filter(
-            (s: Signature) => s.sequence_order < mySig.sequence_order
-          );
-          const allPreviousApproved = previousSigs.every(
-            (s: Signature) => s.status === 'approved'
-          );
-          setCanSign(allPreviousApproved);
+          const isAuthority = mySig.signatory_group === 'authority' && mySig.authority_sequence_order != null;
+          if (isAuthority) {
+            // Authority: must wait for all previous authority signatories (by authority_sequence_order)
+            const prevAuthority = processedSignatures.filter(
+              (s: Signature) =>
+                s.signatory_group === 'authority' &&
+                s.authority_sequence_order != null &&
+                (s.authority_sequence_order ?? 0) < (mySig.authority_sequence_order ?? 0)
+            );
+            setCanSign(prevAuthority.every((s: Signature) => s.status === 'approved'));
+          } else {
+            // Standard: flexible order - can sign anytime
+            setCanSign(true);
+          }
         } else {
           setCanSign(false);
         }
       }
     } catch (error) {
       console.error('Error fetching clearance:', error);
-      toast.error('Failed to load clearance details');
+      toast.error('Failed to load request details');
     } finally {
       setLoading(false);
     }
@@ -211,7 +229,7 @@ export default function SignatoryClearanceDetail() {
       if (error) throw error;
 
       toast.success(
-        `Clearance ${actionType === 'approve' ? 'approved' : 'rejected'} successfully`
+        `Request ${actionType === 'approve' ? 'approved' : 'rejected'} successfully`
       );
       setDialogOpen(false);
       fetchClearanceDetail();
@@ -226,13 +244,13 @@ export default function SignatoryClearanceDetail() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="pending">Pending</Badge>;
+        return <Badge variant="pending">{TERMS.PENDING}</Badge>;
       case 'in_progress':
-        return <Badge variant="in-progress">In Progress</Badge>;
+        return <Badge variant="in-progress">{TERMS.IN_PROGRESS}</Badge>;
       case 'approved':
-        return <Badge variant="approved">Approved</Badge>;
+        return <Badge variant="approved">{TERMS.APPROVED}</Badge>;
       case 'rejected':
-        return <Badge variant="rejected">Rejected</Badge>;
+        return <Badge variant="rejected">{TERMS.REJECTED}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -264,13 +282,21 @@ export default function SignatoryClearanceDetail() {
   if (!clearance) {
     return (
       <DashboardLayout>
-        <div className="text-center py-12">
+        <div className="text-center py-12 px-4">
           <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-semibold">Clearance not found</h3>
-          <Button variant="outline" className="mt-4" onClick={() => navigate('/dashboard')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
-          </Button>
+          <h3 className="mt-4 text-lg font-semibold">Request not found</h3>
+          <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+            This request may have been removed, or you may not have access to it. Check your To Sign list for requests assigned to you.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3 mt-6">
+            <Button variant="outline" onClick={() => navigate('/dashboard/requests')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              To Sign
+            </Button>
+            <Button variant="ghost" onClick={() => navigate('/dashboard')}>
+              Dashboard
+            </Button>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -371,10 +397,10 @@ export default function SignatoryClearanceDetail() {
               </CardTitle>
               <CardDescription>
                 {mySignature.status === 'pending' && !canSign
-                  ? 'Waiting for previous signatories to approve'
+                  ? 'Pending approval from previous signatories'
                   : mySignature.status === 'pending'
-                  ? 'This clearance is ready for your signature'
-                  : `You ${mySignature.status} this clearance`}
+                  ? 'This request is ready for your approval'
+                  : `You ${mySignature.status} this request`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -407,7 +433,7 @@ export default function SignatoryClearanceDetail() {
           <CardHeader>
             <CardTitle className="text-lg">Signing History</CardTitle>
             <CardDescription>
-              All signatories and their remarks for this clearance
+              All signatories and their remarks for this request
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -461,12 +487,19 @@ export default function SignatoryClearanceDetail() {
                           {isWaiting && (
                             <p className="text-xs text-warning mt-1 flex items-center gap-1">
                               <Lock className="h-3 w-3" />
-                              Waiting for previous signatories
+                              Pending previous signatories
                             </p>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                        {sig.status === 'approved' && sig.signed_at && (
+                          <ApprovedStamp
+                            signedAt={sig.signed_at}
+                            signatoryName={sig.signatory?.name}
+                            className="mr-2"
+                          />
+                        )}
                         {getStatusIcon(sig.status)}
                         {getStatusBadge(sig.status)}
                       </div>
@@ -508,12 +541,12 @@ export default function SignatoryClearanceDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="font-display">
-              {actionType === 'approve' ? 'Approve' : 'Reject'} Clearance
+              {actionType === 'approve' ? 'Approve' : 'Reject'} Request
             </DialogTitle>
             <DialogDescription>
               {actionType === 'approve'
-                ? 'Confirm approval of this clearance request.'
-                : 'Provide a reason for rejecting this clearance request.'}
+                ? 'Confirm approval of this request.'
+                : 'Provide a reason for rejecting this request.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -523,7 +556,7 @@ export default function SignatoryClearanceDetail() {
                 placeholder={
                   actionType === 'approve'
                     ? 'Add any notes for the student...'
-                    : 'Explain why this clearance is being rejected...'
+                    : 'Explain why this request is being rejected...'
                 }
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -537,7 +570,7 @@ export default function SignatoryClearanceDetail() {
                 onChange={(e) => setRemarks(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Remarks are visible to everyone viewing this clearance.
+                Remarks are visible to everyone viewing this request.
               </p>
             </div>
           </div>

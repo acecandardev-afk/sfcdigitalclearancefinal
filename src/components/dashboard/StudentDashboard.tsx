@@ -5,17 +5,22 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2, Filter } from 'lucide-react';
+import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
+import { TERMS, getStatusLabel } from '@/lib/terms';
 
 interface SignatureInfo {
   id: string;
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   sequence_order: number;
+  signed_at: string | null;
   signatories: {
+    id: string;
     name: string;
+    position: string;
     department: string;
   };
 }
@@ -31,7 +36,7 @@ interface ClearanceRequest {
   clearance_signatures?: SignatureInfo[];
 }
 
-type StatusFilter = 'all' | 'pending' | 'in_progress' | 'approved' | 'rejected';
+type StatusFilter = 'all' | 'pending' | 'approved';
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -59,7 +64,7 @@ export default function StudentDashboard() {
         .from('clearance_requests')
         .select(`
           *,
-          clearance_signatures(id, status, sequence_order, signatories(name, department))
+          clearance_signatures(id, status, sequence_order, signed_at, signatories(id, name, position, department))
         `)
         .eq('student_id', user?.id)
         .order('created_at', { ascending: false });
@@ -96,7 +101,7 @@ export default function StudentDashboard() {
       });
     } catch (error) {
       console.error('Error fetching clearances:', error);
-      toast.error('Failed to load clearances');
+      toast.error('Failed to load requests');
     } finally {
       setLoading(false);
     }
@@ -105,13 +110,13 @@ export default function StudentDashboard() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="pending">Pending</Badge>;
+        return <Badge variant="pending">{TERMS.PENDING}</Badge>;
       case 'in_progress':
-        return <Badge variant="in-progress">In Progress</Badge>;
+        return <Badge variant="in-progress">{TERMS.IN_PROGRESS}</Badge>;
       case 'approved':
-        return <Badge variant="approved">Approved</Badge>;
+        return <Badge variant="approved">{TERMS.APPROVED}</Badge>;
       case 'rejected':
-        return <Badge variant="rejected">Rejected</Badge>;
+        return <Badge variant="rejected">{TERMS.REJECTED}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -128,8 +133,8 @@ export default function StudentDashboard() {
     icon: React.ElementType;
     color: string;
   }) => (
-    <Card className="shadow-card hover:shadow-elevated transition-shadow duration-300">
-      <CardContent className="p-6">
+    <Card className="border border-border/50 rounded-xl shadow-sm bg-card hover:shadow-md transition-shadow duration-300">
+      <CardContent className="p-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-muted-foreground">{title}</p>
@@ -148,26 +153,106 @@ export default function StudentDashboard() {
     return c.status === statusFilter;
   });
 
+  // Signatory progress: Signed vs Pending (exclude rejected, in_progress)
+  const signatoryProgress = (() => {
+    let signed = 0;
+    let pending = 0;
+    for (const c of clearances) {
+      for (const sig of c.clearance_signatures || []) {
+        if (sig.status === 'approved') signed++;
+        else if (sig.status === 'pending') pending++;
+      }
+    }
+    const total = signed + pending;
+    const pct = total > 0 ? Math.round((signed / total) * 100) : 0;
+    return { signed, pending, total, pct };
+  })();
+
+  const progressChartData = signatoryProgress.total > 0
+    ? [
+        { name: 'Signed', value: signatoryProgress.signed, fill: '#10b981' },
+        { name: 'Pending', value: signatoryProgress.pending, fill: '#eab308' },
+      ].filter((d) => d.value > 0)
+    : [];
+
   return (
-    <div className="p-6 space-y-8">
+    <div className="w-full p-6 lg:p-8 xl:px-12 space-y-8 bg-background/75 min-h-screen">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Manage your clearance requests</p>
+          <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Overview of your clearance requests</p>
         </div>
         <Button
-          variant="hero"
-          size="lg"
           onClick={() => navigate('/dashboard/clearances/new')}
+          className="shrink-0"
         >
-          <Plus className="h-5 w-5 mr-2" />
-          New Clearance
+          <Plus className="h-4 w-4 mr-2" />
+          {TERMS.NEW_REQUEST}
         </Button>
       </div>
 
+      {/* Signatory Progress */}
+      {signatoryProgress.total > 0 && (
+        <Card className="border border-border/50 rounded-xl shadow-sm overflow-hidden bg-card">
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-base font-semibold">Signatory Progress</CardTitle>
+            <CardDescription className="text-xs">
+              Completion rate across your clearance requests
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2 pb-4">
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="h-[140px] w-full sm:w-[140px] shrink-0 flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={progressChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="55%"
+                      outerRadius="90%"
+                      paddingAngle={0}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {progressChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-bold text-foreground">{signatoryProgress.pct}%</span>
+                </div>
+              </div>
+              <div className="flex-1 flex flex-col gap-2 min-w-0">
+                <label className="flex items-center gap-2.5 cursor-default">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-none border-2 border-emerald-500 bg-emerald-500/10">
+                    <span className="h-2 w-2 rounded-none bg-emerald-500" />
+                  </span>
+                  <span className="text-sm font-medium text-foreground">Signed</span>
+                  <span className="ml-auto font-semibold tabular-nums text-emerald-600 dark:text-emerald-400 text-sm">
+                    {signatoryProgress.signed}/{signatoryProgress.total}
+                  </span>
+                </label>
+                <label className="flex items-center gap-2.5 cursor-default">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-none border-2 border-amber-500 bg-amber-500/10">
+                    <span className="h-2 w-2 rounded-none bg-amber-500" />
+                  </span>
+                  <span className="text-sm font-medium text-foreground">Pending</span>
+                  <span className="ml-auto font-semibold tabular-nums text-amber-600 dark:text-amber-400 text-sm">
+                    {signatoryProgress.pending} left
+                  </span>
+                </label>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Requests"
           value={stats.total}
@@ -175,19 +260,19 @@ export default function StudentDashboard() {
           color="bg-primary/10 text-primary"
         />
         <StatCard
-          title="Pending"
+          title={TERMS.PENDING}
           value={stats.pending}
           icon={Clock}
           color="bg-warning/10 text-warning"
         />
         <StatCard
-          title="In Progress"
+          title={TERMS.IN_PROGRESS}
           value={stats.inProgress}
           icon={Loader2}
           color="bg-secondary/10 text-secondary"
         />
         <StatCard
-          title="Approved"
+          title={TERMS.APPROVED}
           value={stats.approved}
           icon={CheckCircle}
           color="bg-success/10 text-success"
@@ -195,20 +280,18 @@ export default function StudentDashboard() {
       </div>
 
       {/* Clearances with Filter */}
-      <Card className="shadow-card">
+      <Card className="border border-border/50 rounded-xl shadow-sm bg-card">
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <CardTitle className="font-display">Clearances</CardTitle>
-              <CardDescription>Your clearance requests and their status</CardDescription>
+              <CardTitle className="text-base font-semibold">My Requests</CardTitle>
+              <CardDescription className="text-sm">Your clearance requests and their status</CardDescription>
             </div>
             <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
               <TabsList>
                 <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="in_progress">In Progress</TabsTrigger>
-                <TabsTrigger value="approved">Approved</TabsTrigger>
-                <TabsTrigger value="rejected">Rejected</TabsTrigger>
+                <TabsTrigger value="pending">{TERMS.PENDING}</TabsTrigger>
+                <TabsTrigger value="approved">{TERMS.APPROVED}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -222,12 +305,12 @@ export default function StudentDashboard() {
             <div className="text-center py-12">
               <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
               <h3 className="mt-4 text-lg font-semibold">
-                {clearances.length === 0 ? 'No clearances yet' : 'No matching clearances'}
+                {clearances.length === 0 ? 'No requests yet' : 'No matching requests'}
               </h3>
               <p className="text-muted-foreground mt-2">
                 {clearances.length === 0
-                  ? 'Create your first clearance request to get started'
-                  : `No clearances with "${statusFilter.replace('_', ' ')}" status`}
+                  ? 'Create your first request to get started'
+                  : `No requests with "${getStatusLabel(statusFilter)}" status`}
               </p>
               {clearances.length === 0 && (
                 <Button
@@ -236,7 +319,7 @@ export default function StudentDashboard() {
                   onClick={() => navigate('/dashboard/clearances/new')}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Clearance
+                  New Request
                 </Button>
               )}
             </div>
@@ -247,16 +330,18 @@ export default function StudentDashboard() {
                   id: sig.id,
                   status: sig.status,
                   sequence_order: sig.sequence_order,
+                  signed_at: sig.signed_at,
                   signatory: {
                     name: sig.signatories?.name || 'Unknown',
                     department: sig.signatories?.department || '',
+                    position: sig.signatories?.position || '',
                   },
                 }));
 
                 return (
                   <div
                     key={clearance.id}
-                    className="p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer animate-slide-up"
+                    className="p-4 rounded-xl border border-border/60 hover:bg-muted/40 transition-colors cursor-pointer"
                     style={{ animationDelay: `${index * 0.05}s` }}
                     onClick={() => navigate(`/dashboard/clearances/${clearance.id}`)}
                   >
@@ -279,8 +364,44 @@ export default function StudentDashboard() {
                       {getStatusBadge(clearance.status)}
                     </div>
                     {signatureSteps.length > 0 && (
-                      <div className="ml-14">
-                        <ClearanceProgressTimeline signatures={signatureSteps} compact />
+                      <div className="ml-14 space-y-3">
+                        <ClearanceProgressTimeline signatures={signatureSteps.map((s) => ({ ...s, signatory: { name: s.signatory.name, department: s.signatory.department } }))} compact clearanceId={clearance.id} />
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Signatories</p>
+                          <div className="grid gap-1.5">
+                            {signatureSteps.map((sig) => (
+                              <div key={sig.id} className="flex items-center justify-between text-sm">
+                                <span className="text-foreground">
+                                  {sig.sequence_order}. {sig.signatory.name}
+                                  <span className="text-muted-foreground ml-1">
+                                    ({sig.signatory.position || sig.signatory.department})
+                                  </span>
+                                </span>
+                                {sig.status === 'approved' ? (
+                                  <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+                                    <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                                    Signed
+                                    {sig.signed_at && (
+                                      <span className="text-muted-foreground font-normal">
+                                        {new Date(sig.signed_at).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : sig.status === 'rejected' ? (
+                                  <span className="inline-flex items-center gap-1 text-destructive text-xs font-medium">
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    Rejected
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 text-xs font-medium">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    Pending
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

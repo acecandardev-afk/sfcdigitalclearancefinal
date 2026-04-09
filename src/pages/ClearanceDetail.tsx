@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
@@ -20,6 +20,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
+import { TERMS } from '@/lib/terms';
 
 interface Signature {
   id: string;
@@ -60,25 +61,34 @@ export default function ClearanceDetail() {
     }
   }, [user, id]);
 
-  const fetchClearanceDetail = async () => {
+  // Real-time subscription for live signature updates
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`clearance-detail-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'clearance_signatures',
+          filter: `clearance_request_id=eq.${id}`,
+        },
+        () => {
+          fetchSignatures();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, fetchSignatures]);
+
+  const fetchSignatures = useCallback(async () => {
+    if (!id) return;
     try {
-      // Fetch clearance request
-      const { data: clearanceData, error: clearanceError } = await supabase
-        .from('clearance_requests')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (clearanceError) throw clearanceError;
-      if (!clearanceData) {
-        toast.error('Clearance not found');
-        navigate('/dashboard');
-        return;
-      }
-
-      setClearance(clearanceData);
-
-      // Fetch signatures with signatory details
       const { data: signaturesData, error: signaturesError } = await supabase
         .from('clearance_signatures')
         .select(`
@@ -101,12 +111,35 @@ export default function ClearanceDetail() {
 
       if (signaturesError) throw signaturesError;
 
-      const processedSignatures = signaturesData.map((sig: any) => ({
+      const processedSignatures = (signaturesData || []).map((sig: any) => ({
         ...sig,
         signatory: sig.signatories,
       }));
 
       setSignatures(processedSignatures);
+    } catch (error) {
+      console.error('Error fetching signatures:', error);
+    }
+  }, [id]);
+
+  const fetchClearanceDetail = async () => {
+    try {
+      // Fetch clearance request
+      const { data: clearanceData, error: clearanceError } = await supabase
+        .from('clearance_requests')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (clearanceError) throw clearanceError;
+      if (!clearanceData) {
+        toast.error('Clearance not found');
+        navigate('/dashboard');
+        return;
+      }
+
+      setClearance(clearanceData);
+      await fetchSignatures();
     } catch (error) {
       console.error('Error fetching clearance:', error);
       toast.error('Failed to load clearance details');
@@ -147,7 +180,7 @@ export default function ClearanceDetail() {
       
       if (clearanceError) throw clearanceError;
 
-      toast.success('Clearance request deleted successfully');
+      toast.success('Request deleted successfully');
       navigate('/dashboard');
     } catch (error) {
       console.error('Error deleting clearance:', error);
@@ -160,13 +193,13 @@ export default function ClearanceDetail() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="pending">Pending</Badge>;
+        return <Badge variant="pending">{TERMS.PENDING}</Badge>;
       case 'in_progress':
-        return <Badge variant="in-progress">In Progress</Badge>;
+        return <Badge variant="in-progress">{TERMS.IN_PROGRESS}</Badge>;
       case 'approved':
-        return <Badge variant="approved">Approved</Badge>;
+        return <Badge variant="approved">{TERMS.APPROVED}</Badge>;
       case 'rejected':
-        return <Badge variant="rejected">Rejected</Badge>;
+        return <Badge variant="rejected">{TERMS.REJECTED}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -200,7 +233,7 @@ export default function ClearanceDetail() {
       <DashboardLayout>
         <div className="text-center py-12">
           <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-semibold">Clearance not found</h3>
+          <h3 className="mt-4 text-lg font-semibold">Request not found</h3>
           <Button variant="outline" className="mt-4" onClick={() => navigate('/dashboard')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
@@ -246,9 +279,9 @@ export default function ClearanceDetail() {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Clearance Request?</AlertDialogTitle>
+                  <AlertDialogTitle>Delete Request?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete this clearance request and all associated files. 
+                    This will permanently delete this request and all associated files. 
                     This action cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -342,7 +375,7 @@ export default function ClearanceDetail() {
                             )}
                             {isWaiting && (
                               <p className="text-xs text-warning mt-1">
-                                Waiting for previous signatories
+                                Pending previous signatories
                               </p>
                             )}
                           </div>
