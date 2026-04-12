@@ -7,13 +7,6 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 const BG_IMAGE = '/Screenshot%202026-03-04%20104258.png';
 
@@ -23,15 +16,13 @@ const BG_IMAGE = '/Screenshot%202026-03-04%20104258.png';
  */
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, loading, signIn, resetPassword } = useAuth();
+  const { user, loading, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('student');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const [forgotSent, setForgotSent] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
@@ -54,19 +45,8 @@ export default function Auth() {
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) {
-      toast.error('Enter your email address');
-      return;
-    }
-    setIsLoading(true);
-    const { error } = await resetPassword(email.trim());
-    if (error) {
-      toast.error(error.message);
-    } else {
-      setForgotSent(true);
-      toast.success('Check your email for the reset link');
-    }
-    setIsLoading(false);
+    toast.error('Password reset is not available yet. Ask the admin to reset your password.');
+    setShowForgot(false);
   };
 
   if (loading) {
@@ -155,66 +135,20 @@ export default function Auth() {
                 </div>
 
                 {showForgot ? (
-                  forgotSent ? (
-                    <div className="space-y-5 text-center">
-                      <h3 className="text-lg font-semibold text-white">Check your email</h3>
-                      <p className="text-sm text-white/80">
-                        We sent a link to your email. Use it to set a new password.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full border-white/30 text-white hover:bg-white/10"
-                        onClick={() => {
-                          setShowForgot(false);
-                          setForgotSent(false);
-                        }}
-                      >
-                        Back to sign in
-                      </Button>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleForgot} className="space-y-5">
-                      <h3 className="text-lg font-semibold text-white text-center">Reset password</h3>
-                      <p className="text-sm text-white/80 text-center">
-                        Enter your email and we will send you a reset link.
-                      </p>
-                      <div className="space-y-2">
-                        <label htmlFor="forgot-email" className="text-sm font-medium text-white/90">
-                          Email
-                        </label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                          <Input
-                            id="forgot-email"
-                            type="email"
-                            placeholder="you@example.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/40"
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="flex-1 border-white/30 text-white hover:bg-white/10"
-                          onClick={() => setShowForgot(false)}
-                        >
-                          Back
-                        </Button>
-                        <Button
-                          type="submit"
-                          disabled={isLoading}
-                          className="flex-1 bg-white/25 hover:bg-white/35 text-white border-0"
-                        >
-                          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send reset link'}
-                        </Button>
-                      </div>
-                    </form>
-                  )
+                  <form onSubmit={handleForgot} className="space-y-5">
+                    <h3 className="text-lg font-semibold text-white text-center">Reset password</h3>
+                    <p className="text-sm text-white/80 text-center">
+                      Password reset is not available yet.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-white/30 text-white hover:bg-white/10"
+                      onClick={() => setShowForgot(false)}
+                    >
+                      Back to sign in
+                    </Button>
+                  </form>
                 ) : (
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="space-y-2">
@@ -280,38 +214,20 @@ export default function Auth() {
                       </button>
                     </div>
 
-                    {/* Role select + Sign In button row */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1">
-                        <label htmlFor="role-select" className="sr-only">Role</label>
-                        <Select value={role} onValueChange={setRole}>
-                          <SelectTrigger
-                            id="role-select"
-                            className="bg-white/10 border-white/20 text-white h-10 justify-start gap-2 [&>span]:text-white/90"
-                          >
-                            <User className="h-4 w-4 text-white/70 shrink-0" />
-                            <SelectValue placeholder="Role" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-gray-900 border-white/20">
-                            <SelectItem value="student" className="text-white focus:bg-white/10">Student</SelectItem>
-                            <SelectItem value="signatory" className="text-white focus:bg-white/10">Signatory</SelectItem>
-                            <SelectItem value="superadmin" className="text-white focus:bg-white/10">Superadmin</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button
-                        type="submit"
-                        disabled={isLoading}
-                        className="bg-white/30 hover:bg-white/40 text-white border-0 h-10 px-6 shrink-0"
-                      >
-                        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                          <>
-                            Sign In
-                            <ArrowRight className="h-4 w-4 ml-1" />
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          Sign In
+                          <ArrowRight className="h-4 w-4 ml-2" />
+                        </>
+                      )}
+                    </Button>
 
                     <p className="text-center text-sm text-white/70 pt-1">
                       Don&apos;t have an account?{' '}

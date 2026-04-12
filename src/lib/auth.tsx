@@ -1,108 +1,65 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-import { logActivity } from '@/hooks/useActivityLog';
+import { createContext, useContext, type ReactNode } from 'react';
+import { SessionProvider, signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from 'next-auth/react';
+
+type AppUser = {
+  id?: string;
+  email?: string | null;
+  roles?: string[];
+};
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AppUser | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, studentId?: string, yearLevel?: string, course?: string) => Promise<{ error: Error | null }>;
+  signUp: (..._args: unknown[]) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: Error | null }>;
+  resetPassword: (..._args: unknown[]) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  return <SessionProvider>{children}</SessionProvider>;
+}
 
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+function AuthBridge({ children }: { children: ReactNode }) {
+  const { data, status } = useSession();
+  const loading = status === 'loading';
+  const user: AppUser | null = data?.user
+    ? {
+        id: (data.user as any).id,
+        email: data.user.email,
+        roles: (data.user as any).roles ?? [],
       }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signUp = async (
-    email: string, 
-    password: string, 
-    fullName: string,
-    studentId?: string,
-    yearLevel?: string,
-    course?: string
-  ) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/`,
-        data: {
-          full_name: fullName,
-        },
-      },
-    });
-
-    if (!error) {
-      // Update profile with additional info after signup
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user) {
-        await supabase
-          .from('profiles')
-          .update({
-            student_id: studentId,
-            year_level: yearLevel,
-            course: course,
-          })
-          .eq('id', userData.user.id);
-      }
-    }
-
-    return { error };
-  };
+    : null;
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const res = await nextAuthSignIn('credentials', {
       email,
       password,
+      redirect: false,
     });
-    if (!error) {
-      // Log login activity after successful sign in
-      setTimeout(() => {
-        logActivity({ action: 'login' });
-      }, 0);
+    if (!res || res.error) {
+      return { error: new Error(res?.error || 'Sign in failed') };
     }
-    return { error };
+    return { error: null };
   };
 
   const signOut = async () => {
-    await logActivity({ action: 'logout' });
-    await supabase.auth.signOut();
-  };
-
-  const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth?reset=1`,
-    });
-    return { error };
+    await nextAuthSignOut({ redirect: false });
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut, resetPassword }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        signIn,
+        signOut,
+        signUp: async () => ({ error: new Error('Sign up is disabled. Ask the admin to create your account.') }),
+        resetPassword: async () => ({ error: new Error('Password reset is not implemented yet.') }),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -114,4 +71,12 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+}
+
+export function AuthProviderWithBridge({ children }: { children: ReactNode }) {
+  return (
+    <AuthProvider>
+      <AuthBridge>{children}</AuthBridge>
+    </AuthProvider>
+  );
 }

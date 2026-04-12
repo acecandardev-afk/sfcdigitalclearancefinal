@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  student
+  signatory
+  superadmin
+}
+
+enum ClearanceStatus {
+  pending
+  in_progress
+  approved
+  rejected
+}
+
+enum SignatureStatus {
+  pending
+  in_progress
+  approved
+  rejected
+}
+
+enum SignatoryGroup {
+  standard
+  authority
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  roles         UserRole[]
+  profile       Profile?
+  signatory     Signatory?
+
+  clearanceRequests ClearanceRequest[]
+  studentAssignments StudentSignatoryAssignment[]
+  activityLogs ActivityLog[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  role      Role
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@map("user_roles")
+}
+
+model Profile {
+  id         String   @id
+  email      String?
+  fullName   String?
+  studentId  String?
+  yearLevel  String?
+  course     String?
+  address    String?
+  age        Int?
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Signatory {
+  id                     String        @id @default(cuid())
+  name                   String
+  position               String
+  department             String
+  email                  String
+  isActive               Boolean       @default(true)
+  userId                 String?       @unique
+  signatoryGroup         SignatoryGroup @default(standard)
+  authoritySequenceOrder Int?
+  createdAt              DateTime      @default(now())
+
+  user                   User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  signatures              ClearanceSignature[]
+  defaultOrder            ClearanceDefaultSignatory?
+  studentAssignments      StudentSignatoryAssignment[]
+  stepNotes               StudentClearanceStepNote[]
+
+  @@map("signatories")
+}
+
+model ClearanceRequest {
+  id          String         @id @default(cuid())
+  studentId   String
+  title       String
+  description String?
+  status      ClearanceStatus @default(pending)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  student     User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  signatures  ClearanceSignature[]
+  files       ClearanceFile[]
+  stepNotes   StudentClearanceStepNote[]
+
+  @@map("clearance_requests")
+}
+
+model ClearanceSignature {
+  id                     String         @id @default(cuid())
+  clearanceRequestId     String
+  signatoryId            String
+  status                 SignatureStatus @default(pending)
+  notes                  String?
+  remarks                String?
+  sequenceOrder          Int
+  signedAt               DateTime?
+  signatoryGroup         SignatoryGroup  @default(standard)
+  authoritySequenceOrder Int?
+
+  clearanceRequest       ClearanceRequest @relation(fields: [clearanceRequestId], references: [id], onDelete: Cascade)
+  signatory              Signatory        @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+
+  @@index([clearanceRequestId])
+  @@index([signatoryId])
+  @@map("clearance_signatures")
+}
+
+model ClearanceFile {
+  id                  String   @id @default(cuid())
+  clearanceRequestId  String
+  signatureId         String?
+  fileName            String
+  contentType         String?
+  blobUrl             String
+  uploadedAt          DateTime @default(now())
+
+  clearanceRequest    ClearanceRequest @relation(fields: [clearanceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([clearanceRequestId])
+  @@map("clearance_files")
+}
+
+model ClearanceDefaultSignatory {
+  id           String   @id @default(cuid())
+  signatoryId  String
+  sequenceOrder Int
+
+  signatory    Signatory @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+
+  @@unique([signatoryId])
+  @@map("clearance_default_signatories")
+}
+
+model StudentSignatoryAssignment {
+  id            String        @id @default(cuid())
+  studentId     String
+  signatoryId   String
+  sequenceOrder Int
+  signatoryGroup SignatoryGroup @default(standard)
+
+  student       User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  signatory     Signatory     @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, signatoryId])
+  @@map("student_signatory_assignments")
+}
+
+model SystemSetting {
+  key        String   @id
+  valueJson  Json
+  updatedAt  DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  details   Json?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model StudentClearanceStepNote {
+  id                String   @id @default(cuid())
+  clearanceRequestId String
+  signatoryId        String
+  note              String
+  createdAt         DateTime @default(now())
+
+  clearanceRequest  ClearanceRequest @relation(fields: [clearanceRequestId], references: [id], onDelete: Cascade)
+  signatory         Signatory        @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+
+  @@unique([clearanceRequestId, signatoryId])
+  @@map("student_clearance_step_notes")
+}
