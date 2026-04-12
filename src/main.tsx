@@ -32,17 +32,4 @@ window.addEventListener('unhandledrejection', (e) => {
   }
 });
 
-const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
-const supabaseAnon = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-const supabasePub = String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim();
-
-if (!supabaseUrl || (!supabaseAnon && !supabasePub)) {
-  if (rootEl) {
-    showFatalError(
-      'Configuration required',
-      'Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your deployment environment (Vercel → Project Settings → Environment Variables), then redeploy.'
-    );
-  }
-} else {
-  createRoot(rootEl!).render(<App />);
-}
+createRoot(rootEl!).render(<App />);
