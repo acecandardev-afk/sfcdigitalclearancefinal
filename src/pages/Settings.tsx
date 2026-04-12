@@ -239,13 +239,15 @@ export default function Settings() {
         .select('id, email, full_name')
         .in('id', userIds);
 
-      const profileMap = new Map(profiles?.map((p) => [p.id, p]) || []);
+      const profilesAny = (profiles || []) as any[];
+      const profileMap = new Map<string, any>(profilesAny.map((p) => [String(p.id), p]) || []);
 
-      const logsWithUsers: ActivityLog[] = (logs || []).map((log) => ({
+      const logsAny = (logs || []) as any[];
+      const logsWithUsers: ActivityLog[] = logsAny.map((log) => ({
         ...log,
         details: log.details as Record<string, unknown> | null,
-        user_email: profileMap.get(log.user_id)?.email || 'Unknown',
-        user_name: profileMap.get(log.user_id)?.full_name || 'Unknown User',
+        user_email: (profileMap.get(String(log.user_id)) as any)?.email || 'Unknown',
+        user_name: (profileMap.get(String(log.user_id)) as any)?.full_name || 'Unknown User',
       }));
 
       setActivityLogs(logsWithUsers);

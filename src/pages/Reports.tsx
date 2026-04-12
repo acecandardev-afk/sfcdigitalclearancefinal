@@ -248,15 +248,22 @@ export default function Reports() {
 
       if (crErr) throw crErr;
 
-      const clearanceMap = new Map((crs || []).map((c) => [c.id, c]));
-      let studentIds = [...new Set((crs || []).map((c) => c.student_id))];
+      const crsAny = (crs || []) as any[];
+      const clearanceMap = new Map<string, any>(crsAny.map((c) => [String(c.id), c]));
+      let studentIds = [...new Set(crsAny.map((c) => String(c.student_id)))];
 
       let allowedClearanceIds = new Set(clearanceIds);
       if (signatureClearanceStatus !== 'all') {
         allowedClearanceIds = new Set(
-          (crs || []).filter((c) => c.status === signatureClearanceStatus).map((c) => c.id)
+          crsAny.filter((c) => c.status === signatureClearanceStatus).map((c) => String(c.id))
         );
-        studentIds = [...new Set((crs || []).filter((c) => c.status === signatureClearanceStatus).map((c) => c.student_id))];
+        studentIds = [
+          ...new Set(
+            crsAny
+              .filter((c) => c.status === signatureClearanceStatus)
+              .map((c) => String(c.student_id))
+          ),
+        ];
       }
 
       const { data: profs, error: pErr } = await supabase
@@ -265,14 +272,15 @@ export default function Reports() {
         .in('id', studentIds);
 
       if (pErr) throw pErr;
-      const profileMap = new Map((profs || []).map((p) => [p.id, p]));
+      const profsAny = (profs || []) as any[];
+      const profileMap = new Map<string, any>(profsAny.map((p) => [String(p.id), p]));
 
       const merged: SignatureRow[] = [];
       for (const s of sigs) {
         const cr = clearanceMap.get(s.clearance_request_id);
         if (!cr) continue;
-        if (!allowedClearanceIds.has(cr.id)) continue;
-        const st = profileMap.get(cr.student_id);
+        if (!allowedClearanceIds.has(String(cr.id))) continue;
+        const st = profileMap.get(String(cr.student_id));
         merged.push({
           ...s,
           clearance: {
@@ -283,11 +291,11 @@ export default function Reports() {
             student_id: cr.student_id,
           },
           student: {
-            full_name: st?.full_name ?? '—',
-            email: st?.email ?? null,
-            student_id: st?.student_id ?? null,
-            course: st?.course ?? null,
-            year_level: st?.year_level ?? null,
+            full_name: (st as any)?.full_name ?? '—',
+            email: (st as any)?.email ?? null,
+            student_id: (st as any)?.student_id ?? null,
+            course: (st as any)?.course ?? null,
+            year_level: (st as any)?.year_level ?? null,
           },
         });
       }

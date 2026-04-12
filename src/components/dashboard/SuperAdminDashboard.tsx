@@ -138,7 +138,9 @@ export default function SuperAdminDashboard() {
       const rejectedCount = clearances.filter((c) => c.status === 'rejected').length;
       const inProgressCount = clearances.filter((c) => c.status === 'in_progress').length;
 
-      const studentIds = new Set((studentRolesRes.data || []).map((r) => r.user_id));
+      const studentIds = new Set<string>(
+        (studentRolesRes.data || []).map((r) => String((r as any).user_id))
+      );
       const studentsWithApproved = new Set(
         (approvedClearancesRes.data || []).map((r) => r.student_id)
       );

@@ -33,9 +33,11 @@ const SUPABASE_ANON_KEY = envVar('VITE_SUPABASE_ANON_KEY');
 const SUPABASE_PUBLISHABLE_KEY = envVar('VITE_SUPABASE_PUBLISHABLE_KEY');
 const SUPABASE_KEY = SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error(
-    'Missing Supabase env vars. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY or VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart the dev server.'
+const HAS_SUPABASE_ENV = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
+if (!HAS_SUPABASE_ENV) {
+  console.warn(
+    'Supabase env vars are not set. Supabase features are disabled while migrating to Prisma/Auth.js.'
   );
 }
 
@@ -53,11 +55,26 @@ function authStorageKey(url: string): string {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    storage: localStorage,
-    storageKey: authStorageKey(SUPABASE_URL),
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-});
+function disabledSupabaseProxy(): any {
+  return new Proxy(
+    {},
+    {
+      get() {
+        throw new Error(
+          'Supabase has been removed/disabled. This code path still uses Supabase and must be migrated to Prisma-backed APIs.'
+        );
+      },
+    }
+  );
+}
+
+export const supabase = HAS_SUPABASE_ENV
+  ? createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        storage: localStorage,
+        storageKey: authStorageKey(SUPABASE_URL),
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    })
+  : (disabledSupabaseProxy() as any);

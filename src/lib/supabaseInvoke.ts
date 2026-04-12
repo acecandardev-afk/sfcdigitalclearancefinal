@@ -59,12 +59,12 @@ export async function invokeAuthenticatedFunction<T = unknown>(
 
   const apikey = supabasePublicKey();
 
-  return supabase.functions.invoke<T>(functionName, {
+  return (supabase.functions.invoke(functionName, {
     ...options,
     body,
     headers: {
       ...(apikey ? { apikey } : {}),
       Authorization: `Bearer ${accessToken}`,
     },
-  });
+  }) as unknown) as ReturnType<(typeof supabase.functions.invoke)>;
 }
