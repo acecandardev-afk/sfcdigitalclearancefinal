@@ -4,13 +4,33 @@ import type { Database } from './types';
 
 function trimEnv(v: string | undefined): string {
   if (v == null || v === '') return '';
-  return String(v).trim().replace(/^["']|["']$/g, '');
+  return String(v).trim().replace(/^"|"$/g, '').replace(/^['"]|['"]$/g, '');
 }
 
-const SUPABASE_URL = trimEnv(import.meta.env.VITE_SUPABASE_URL);
+function envVar(name: string): string {
+  try {
+    const metaEnv = (import.meta as any)?.env;
+    const v = metaEnv?.[name];
+    if (typeof v === 'string' && v.trim()) return trimEnv(v);
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const pe = (process as any)?.env || {};
+    const v = pe[name] ?? pe[`NEXT_PUBLIC_${name}`];
+    if (typeof v === 'string' && v.trim()) return trimEnv(v);
+  } catch {
+    /* ignore */
+  }
+
+  return '';
+}
+
+const SUPABASE_URL = envVar('VITE_SUPABASE_URL');
 /** Legacy anon JWT (eyJ…) from Dashboard → API. Prefer this if Edge Functions return "Invalid JWT" with a publishable key. */
-const SUPABASE_ANON_KEY = trimEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
-const SUPABASE_PUBLISHABLE_KEY = trimEnv(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+const SUPABASE_ANON_KEY = envVar('VITE_SUPABASE_ANON_KEY');
+const SUPABASE_PUBLISHABLE_KEY = envVar('VITE_SUPABASE_PUBLISHABLE_KEY');
 const SUPABASE_KEY = SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {

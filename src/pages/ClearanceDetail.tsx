@@ -77,31 +77,6 @@ export default function ClearanceDetail() {
     }
   }, [user, id]);
 
-  // Real-time subscription for live signature updates
-  useEffect(() => {
-    if (!id) return;
-
-    const channel = supabase
-      .channel(`clearance-detail-${id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'clearance_signatures',
-          filter: `clearance_request_id=eq.${id}`,
-        },
-        () => {
-          fetchSignatures();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [id, fetchSignatures]);
-
   const fetchSignatures = useCallback(async () => {
     if (!id) return;
     try {
@@ -144,6 +119,31 @@ export default function ClearanceDetail() {
       console.error('Error fetching signatures:', error);
     }
   }, [id]);
+
+  // Real-time subscription for live signature updates
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`clearance-detail-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'clearance_signatures',
+          filter: `clearance_request_id=eq.${id}`,
+        },
+        () => {
+          fetchSignatures();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, fetchSignatures]);
 
   const fetchClearanceDetail = async () => {
     try {

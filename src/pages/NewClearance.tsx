@@ -39,7 +39,8 @@ export default function NewClearance() {
 
     (async () => {
       try {
-        const { data: security } = await supabase
+        const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+        const { data: security } = await sb
           .from('system_settings')
           .select('value_json')
           .eq('key', 'security')
@@ -71,26 +72,17 @@ export default function NewClearance() {
         .eq('student_id', studentId)
         .order('sequence_order', { ascending: true });
 
-      type JoinedSignatory = {
-        id: string;
-        name: string;
-        position: string;
-        department: string;
-        signatory_group?: 'standard' | 'authority';
-        authority_sequence_order?: number | null;
-      };
-      type AssignmentRow = { sequence_order: number; signatories: JoinedSignatory };
-
       if (assignmentData && assignmentData.length > 0) {
-        const list: DefaultSignatory[] = assignmentData
-          .filter((row: AssignmentRow) => row.signatories)
-          .map((row: AssignmentRow) => ({
-            id: row.signatories.id,
-            name: row.signatories.name,
-            position: row.signatories.position,
-            department: row.signatories.department,
-            order: row.sequence_order,
-            signatory_group: row.signatories.signatory_group || 'standard',
+        const rows = assignmentData as any[];
+        const list: DefaultSignatory[] = rows
+          .filter((row) => row?.signatories)
+          .map((row) => ({
+            id: String(row.signatories.id),
+            name: String(row.signatories.name),
+            position: String(row.signatories.position),
+            department: String(row.signatories.department),
+            order: Number(row.sequence_order),
+            signatory_group: row.signatories.signatory_group === 'authority' ? 'authority' : 'standard',
             authority_sequence_order: row.signatories.authority_sequence_order ?? null,
           }));
         setSignatories(list);
@@ -106,15 +98,16 @@ export default function NewClearance() {
 
       if (error) throw error;
 
-      const list: DefaultSignatory[] = (defaultData || [])
-        .filter((row: AssignmentRow) => row.signatories)
-        .map((row: AssignmentRow) => ({
-          id: row.signatories.id,
-          name: row.signatories.name,
-          position: row.signatories.position,
-          department: row.signatories.department,
-          order: row.sequence_order,
-          signatory_group: row.signatories.signatory_group || 'standard',
+      const rows = (defaultData as any[] | null | undefined) ?? [];
+      const list: DefaultSignatory[] = rows
+        .filter((row) => row?.signatories)
+        .map((row) => ({
+          id: String(row.signatories.id),
+          name: String(row.signatories.name),
+          position: String(row.signatories.position),
+          department: String(row.signatories.department),
+          order: Number(row.sequence_order),
+          signatory_group: row.signatories.signatory_group === 'authority' ? 'authority' : 'standard',
           authority_sequence_order: row.signatories.authority_sequence_order ?? null,
         }));
       setSignatories(list);

@@ -80,6 +80,7 @@ export default function Settings() {
   const { roles, loading: roleLoading } = useUserRole();
   const isSuperAdminUser = roles.includes('superadmin');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // System settings state
   const [systemName, setSystemName] = useState('SFC-G DCS');
@@ -305,10 +306,12 @@ export default function Settings() {
   const uniqueActions = [...new Set(activityLogs.map((log) => log.action))];
 
   const fetchSettings = async () => {
+    setLoading(true);
     try {
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
       const keys = ['general', 'notifications', 'security', 'clearance'];
       for (const key of keys) {
-        const { data, error } = await supabase
+        const { data, error } = await sb
           .from('system_settings')
           .select('value_json')
           .eq('key', key)
@@ -357,7 +360,8 @@ export default function Settings() {
   const handleSaveGeneral = async () => {
     setSaving(true);
     try {
-      const { error } = await supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb
         .from('system_settings')
         .upsert(
           {
@@ -384,7 +388,8 @@ export default function Settings() {
   const handleSaveNotifications = async () => {
     setSaving(true);
     try {
-      const { error } = await supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb
         .from('system_settings')
         .upsert(
           {
@@ -412,7 +417,8 @@ export default function Settings() {
   const handleSaveSecurity = async () => {
     setSaving(true);
     try {
-      const { error } = await supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb
         .from('system_settings')
         .upsert(
           {
@@ -449,7 +455,8 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      const { error } = await supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb
         .from('system_settings')
         .upsert(
           {

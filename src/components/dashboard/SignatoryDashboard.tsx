@@ -244,11 +244,19 @@ export default function SignatoryDashboard() {
           .in('clearance_request_id', clearanceIds);
 
         // Group by clearance_request_id
-        (allSigs || []).forEach((sig: AllSignature) => {
-          if (!allSignaturesMap[sig.clearance_request_id]) {
-            allSignaturesMap[sig.clearance_request_id] = [];
+        (allSigs as any[] | null | undefined || []).forEach((sig) => {
+          const clearanceId = String(sig.clearance_request_id);
+          if (!allSignaturesMap[clearanceId]) {
+            allSignaturesMap[clearanceId] = [];
           }
-          allSignaturesMap[sig.clearance_request_id].push(sig);
+          allSignaturesMap[clearanceId].push({
+            id: String(sig.id),
+            status: sig.status,
+            sequence_order: Number(sig.sequence_order),
+            clearance_request_id: clearanceId,
+            signatory_group: sig.signatory_group === 'authority' ? 'authority' : 'standard',
+            authority_sequence_order: sig.authority_sequence_order ?? null,
+          } as AllSignature);
         });
       }
 
@@ -276,8 +284,10 @@ export default function SignatoryDashboard() {
         
         return {
           ...sig,
+          signatory_id: (sig as any).signatory_id,
           clearance_request: {
             ...sig.clearance_request,
+            student_id: studentId,
             profiles: profilesMap[studentId] || {
               full_name: 'Unknown',
               student_id: null,
@@ -289,7 +299,7 @@ export default function SignatoryDashboard() {
         };
       });
 
-      setSignatures(processedSignatures as PendingSignature[]);
+      setSignatures(processedSignatures as unknown as PendingSignature[]);
     } catch (error) {
       console.error('Error fetching signatures:', error);
       toast.error('Failed to load pending signatures');
@@ -366,15 +376,24 @@ export default function SignatoryDashboard() {
   const totalRequests = uniqueRequestIds.size;
 
   // Unique students
-  const uniqueStudentIds = new Set(signatures.map((s) => s.clearance_request?.student_id).filter(Boolean));
+  const uniqueStudentIds = new Set(signatures.map((s) => (s.clearance_request as any)?.student_id).filter(Boolean));
   const studentsAwaiting = new Set(
-    signatures.filter((s) => s.status === 'pending' && s.canSign).map((s) => s.clearance_request?.student_id).filter(Boolean)
+    signatures
+      .filter((s) => s.status === 'pending' && s.canSign)
+      .map((s) => (s.clearance_request as any)?.student_id)
+      .filter(Boolean)
   ).size;
   const studentsApproved = new Set(
-    signatures.filter((s) => s.status === 'approved').map((s) => s.clearance_request?.student_id).filter(Boolean)
+    signatures
+      .filter((s) => s.status === 'approved')
+      .map((s) => (s.clearance_request as any)?.student_id)
+      .filter(Boolean)
   ).size;
   const studentsRejected = new Set(
-    signatures.filter((s) => s.status === 'rejected').map((s) => s.clearance_request?.student_id).filter(Boolean)
+    signatures
+      .filter((s) => s.status === 'rejected')
+      .map((s) => (s.clearance_request as any)?.student_id)
+      .filter(Boolean)
   ).size;
 
   // Progress chart: your completed vs still outstanding (actionable + blocked pending)

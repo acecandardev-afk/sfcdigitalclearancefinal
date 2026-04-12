@@ -9,7 +9,8 @@ export function useClearancePeriodSettings() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { data, error } = await sb
         .from('system_settings')
         .select('value_json')
         .eq('key', 'clearance')

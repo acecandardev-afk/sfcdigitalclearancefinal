@@ -119,7 +119,7 @@ export default function AccountSettings() {
 
       const { error } = await sb
         .from('profiles')
-        .update(payload)
+        .update(payload as any)
         .eq('id', user.id);
 
       if (error) {

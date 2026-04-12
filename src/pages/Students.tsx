@@ -148,35 +148,38 @@ export default function Students() {
         return;
       }
 
-      let query = supabase
+      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
+      let query = sb
         .from('profiles')
         .select('id, full_name, email, student_id, year_level, course, is_archived')
         .in('id', userIds)
         .order('full_name');
 
       if (showArchived) {
-        query = query.eq('is_archived', true);
+        query = (query as any).eq('is_archived', true);
       } else {
-        query = query.or('is_archived.eq.false,is_archived.is.null');
+        query = (query as any).or('is_archived.eq.false,is_archived.is.null');
       }
 
       const [profilesResult, activeRes, archivedRes] = await Promise.all([
         query,
-        supabase
+        (supabase as any)
           .from('profiles')
           .select('id', { count: 'exact', head: true })
           .in('id', userIds)
           .or('is_archived.eq.false,is_archived.is.null'),
-        supabase
+        (supabase as any)
           .from('profiles')
           .select('id', { count: 'exact', head: true })
           .in('id', userIds)
           .eq('is_archived', true),
       ]);
 
-      const { data: profiles, error: profileError } = profilesResult;
-      if (profileError) throw profileError;
-      setStudents((profiles as StudentProfile[]) || []);
+      const { data: profiles, error: profilesError } = await (profilesResult as any);
+      if (profilesError) throw profilesError;
+
+      const list = (profiles || []) as unknown as StudentProfile[];
+      setStudents(list);
       setTotalActiveCount(activeRes.count ?? 0);
       setArchivedCount(archivedRes.count ?? 0);
     } catch (error) {
@@ -247,7 +250,7 @@ export default function Students() {
           student_id: data.student_id || null,
           year_level: data.year_level || null,
           course: data.course || null,
-        })
+        } as any)
         .eq('id', editingStudent.id);
 
       if (error) throw error;
@@ -265,9 +268,10 @@ export default function Students() {
 
   const toggleArchive = async (student: StudentProfile, archive: boolean) => {
     try {
-      const { error } = await supabase
+      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb2
         .from('profiles')
-        .update({ is_archived: archive })
+        .update({ is_archived: archive } as any)
         .eq('id', student.id);
 
       if (error) throw error;
@@ -287,9 +291,10 @@ export default function Students() {
   const bulkArchive = async () => {
     if (selectedIds.size === 0) return;
     try {
-      const { error } = await supabase
+      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb2
         .from('profiles')
-        .update({ is_archived: true })
+        .update({ is_archived: true } as any)
         .in('id', Array.from(selectedIds));
 
       if (error) throw error;
@@ -305,9 +310,10 @@ export default function Students() {
   const bulkRestore = async () => {
     if (selectedIds.size === 0) return;
     try {
-      const { error } = await supabase
+      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
+      const { error } = await sb2
         .from('profiles')
-        .update({ is_archived: false })
+        .update({ is_archived: false } as any)
         .in('id', Array.from(selectedIds));
 
       if (error) throw error;
