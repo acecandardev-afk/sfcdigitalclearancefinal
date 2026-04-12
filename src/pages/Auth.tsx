@@ -230,10 +230,7 @@ export default function Auth() {
                     </Button>
 
                     <p className="text-center text-sm text-white/70 pt-1">
-                      Don&apos;t have an account?{' '}
-                      <Link to="/" className="text-amber-400 font-medium hover:underline">
-                        Sign Up
-                      </Link>
+                      Accounts are created by the administrator.
                     </p>
                   </form>
                 )}
