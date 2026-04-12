@@ -18,6 +18,9 @@ import {
   Bell,
   CheckCircle,
   UserCheck,
+  BarChart3,
+  CalendarDays,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -59,19 +62,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    ...(isStudent() ? [{ path: '/dashboard/clearances', label: 'My Requests', icon: FileText }] : []),
+    ...(isStudent()
+      ? [
+          { path: '/dashboard/clearances', label: 'My Clearance', icon: FileText },
+          { path: '/dashboard/clearances/calendar', label: 'Clearance calendar', icon: CalendarDays },
+          { path: '/dashboard/clearances/report', label: 'Clearance report', icon: FileSpreadsheet },
+        ]
+      : []),
     ...(isSignatory() ? [{ path: '/dashboard/requests', label: 'To Sign', icon: Bell }] : []),
     ...(isSignatory() ? [{ path: '/dashboard/approved', label: 'Signed', icon: CheckCircle }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/students', label: 'Students', icon: User }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/bulk-assign', label: 'Bulk Assign', icon: UserCheck }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/signatories', label: 'Signatories', icon: Users }] : []),
+    ...(isSuperAdmin() ? [{ path: '/dashboard/reports', label: 'Reports', icon: BarChart3 }] : []),
     ...(isSuperAdmin() ? [{ path: '/dashboard/settings', label: 'Settings', icon: Settings }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-background/77">
-      {/* Header with hamburger - always visible */}
-      <header className="sticky top-0 z-50 bg-background border-b border-border">
+    <div className="min-h-screen bg-background">
+      {/* Header: light surface so it stays readable on gray canvas */}
+      <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
             <Button
@@ -197,7 +207,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
 
         {/* Main content - 100% width */}
-        <main className="flex-1 min-w-0 w-full min-h-screen bg-background">
+        <main className="flex-1 min-w-0 w-full min-h-screen bg-background text-foreground">
           {children}
         </main>
       </div>

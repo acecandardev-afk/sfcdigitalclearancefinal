@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
 
-export type ActivityAction = 
+export type ActivityAction =
   | 'login'
   | 'logout'
   | 'signup'
@@ -16,6 +16,8 @@ export type ActivityAction =
   | 'update_user_roles'
   | 'view_dashboard'
   | 'view_clearance';
+
+/** Common keys in `details` for clearance timelines: clearance_request_id, signatory_id, step, bulk */
 
 interface LogActivityParams {
   action: ActivityAction;

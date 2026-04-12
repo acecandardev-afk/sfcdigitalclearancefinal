@@ -5,8 +5,9 @@
 @tailwind utilities;
 
 @layer base {
+  /* Page canvas: light gray. Cards/surfaces stay near-white for contrast. */
   :root {
-    --background: 0 0% 99%;
+    --background: 220 14% 93%;
     --foreground: 220 15% 12%;
 
     --card: 0 0% 100%;
@@ -18,11 +19,11 @@
     --primary: 262 52% 42%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 260 30% 96%;
+    --secondary: 220 14% 96%;
     --secondary-foreground: 262 52% 30%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 10% 42%;
+    --muted: 220 12% 90%;
+    --muted-foreground: 220 10% 40%;
 
     --accent: 262 40% 94%;
     --accent-foreground: 262 52% 30%;
@@ -36,8 +37,8 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
+    --border: 220 13% 86%;
+    --input: 220 13% 88%;
     --ring: 262 52% 42%;
 
     --radius: 0.625rem;
@@ -118,15 +119,19 @@
   }
 
   html {
-    @apply bg-muted;
+    @apply bg-background min-h-full;
   }
 
   body {
-    @apply bg-transparent text-foreground antialiased;
+    @apply bg-background text-foreground antialiased min-h-full;
     font-family: 'Inter', 'DM Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     letter-spacing: 0.01em;
+  }
+
+  #root {
+    @apply min-h-full bg-background;
   }
 
   h1, h2, h3, h4, h5, h6 {

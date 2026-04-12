@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
+import StudentClearanceInsights from '@/components/dashboard/StudentClearanceInsights';
 import { TERMS, getStatusLabel } from '@/lib/terms';
 
 interface SignatureInfo {
@@ -133,7 +134,7 @@ export default function StudentDashboard() {
     icon: React.ElementType;
     color: string;
   }) => (
-    <Card className="border border-border/50 rounded-xl shadow-sm bg-card hover:shadow-md transition-shadow duration-300">
+    <Card className="border border-border/60 rounded-xl shadow-sm bg-card/80 hover:shadow-md hover:border-primary/15 transition-all duration-300">
       <CardContent className="p-5">
         <div className="flex items-center justify-between">
           <div>
@@ -176,21 +177,28 @@ export default function StudentDashboard() {
     : [];
 
   return (
-    <div className="w-full p-6 lg:p-8 xl:px-12 space-y-8 bg-background/75 min-h-screen">
+    <div className="app-page space-y-8 min-h-screen bg-gradient-to-br from-slate-50/80 via-blue-50/20 to-transparent dark:from-gray-950/50 dark:via-gray-900/30">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border/50">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Overview of your clearance requests</p>
+          <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight text-[#1a3c5e] dark:text-blue-400">
+            Student overview
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm max-w-xl">
+            Use <span className="font-medium text-foreground">My Clearance</span> to submit each office step; this page
+            summarizes your requests.
+          </p>
         </div>
         <Button
-          onClick={() => navigate('/dashboard/clearances/new')}
-          className="shrink-0"
+          onClick={() => navigate('/dashboard/clearances')}
+          className="shrink-0 shadow-sm bg-[#1a3c5e] hover:bg-[#15304d] dark:bg-blue-600 dark:hover:bg-blue-700"
         >
           <Plus className="h-4 w-4 mr-2" />
-          {TERMS.NEW_REQUEST}
+          My Clearance
         </Button>
       </div>
+
+      {!loading && <StudentClearanceInsights clearances={clearances} />}
 
       {/* Signatory Progress */}
       {signatoryProgress.total > 0 && (
@@ -252,7 +260,7 @@ export default function StudentDashboard() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
         <StatCard
           title="Total Requests"
           value={stats.total}
@@ -280,7 +288,7 @@ export default function StudentDashboard() {
       </div>
 
       {/* Clearances with Filter */}
-      <Card className="border border-border/50 rounded-xl shadow-sm bg-card">
+      <Card className="border border-border/60 rounded-xl shadow-sm bg-card overflow-hidden">
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
@@ -316,10 +324,10 @@ export default function StudentDashboard() {
                 <Button
                   variant="outline"
                   className="mt-4"
-                  onClick={() => navigate('/dashboard/clearances/new')}
+                  onClick={() => navigate('/dashboard/clearances')}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  New Request
+                  Open My Clearance
                 </Button>
               )}
             </div>

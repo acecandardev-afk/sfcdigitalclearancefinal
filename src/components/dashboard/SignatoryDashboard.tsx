@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown, Lock, Eye, Users, ChevronDown, List, Activity, BarChart3, TrendingUp } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, FileText, Loader2, Paperclip, Filter, Search, ArrowUpDown, Lock, Eye, Users, List, Activity, BarChart3, TrendingUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import ClearanceFilesViewer from './ClearanceFilesViewer';
 import { TERMS } from '@/lib/terms';
+import { logActivity } from '@/hooks/useActivityLog';
 import {
   PieChart,
   Pie,
@@ -56,6 +57,7 @@ import {
 
 interface PendingSignature {
   id: string;
+  signatory_id: string;
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   notes: string | null;
   remarks: string | null;
@@ -85,8 +87,36 @@ interface AllSignature {
   authority_sequence_order?: number | null;
 }
 
+type ProfileRow = {
+  id: string;
+  full_name: string;
+  student_id: string | null;
+  course: string | null;
+  year_level: string | null;
+};
+
+/** Row shape from clearance_signatures + nested clearance_request */
+type RawPendingRow = {
+  id: string;
+  status: PendingSignature['status'];
+  notes: string | null;
+  remarks: string | null;
+  sequence_order: number;
+  created_at: string;
+  signatory_group?: 'standard' | 'authority';
+  authority_sequence_order?: number | null;
+  clearance_request: {
+    id: string;
+    title: string;
+    description: string | null;
+    created_at: string;
+    student_id: string;
+  } | null;
+};
+
 export default function SignatoryDashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [signatures, setSignatures] = useState<PendingSignature[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +128,7 @@ export default function SignatoryDashboard() {
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
   const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'action' | 'pending' | 'approved' | 'rejected'>('action');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'title'>('date');
@@ -108,7 +138,6 @@ export default function SignatoryDashboard() {
   const [bulkActionType, setBulkActionType] = useState<'approve' | 'reject'>('approve');
   const [bulkNotes, setBulkNotes] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
-  const [showAllRequests, setShowAllRequests] = useState(false);
   const [signatoryId, setSignatoryId] = useState<string | null>(null);
   const [signatoryInfo, setSignatoryInfo] = useState<{ name: string; position: string; department: string } | null>(null);
   const itemsPerPage = 10;
@@ -184,32 +213,38 @@ export default function SignatoryDashboard() {
       if (error) throw error;
 
       // Get all student IDs and clearance IDs
-      const studentIds = [...new Set((data || []).map((s: any) => s.clearance_request?.student_id).filter(Boolean))];
-      const clearanceIds = [...new Set((data || []).map((s: any) => s.clearance_request?.id).filter(Boolean))];
-      
+      // Defensive: ensure we never keep duplicate signature rows (can happen if the table
+      // accumulates duplicates over time or if the query returns repeated rows).
+      const rawRows = (data || []) as RawPendingRow[];
+      const rows = Array.from(
+        new Map(rawRows.map((r) => [r.id, r] as const)).values()
+      );
+      const studentIds = [...new Set(rows.map((s) => s.clearance_request?.student_id).filter((id): id is string => Boolean(id)))];
+      const clearanceIds = [...new Set(rows.map((s) => s.clearance_request?.id).filter((id): id is string => Boolean(id)))];
+
       // Fetch profiles for these students
-      let profilesMap: Record<string, any> = {};
+      const profilesMap: Record<string, ProfileRow> = {};
       if (studentIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, full_name, student_id, course, year_level')
           .in('id', studentIds);
-        
-        (profiles || []).forEach((p: any) => {
+
+        (profiles || []).forEach((p: ProfileRow) => {
           profilesMap[p.id] = p;
         });
       }
-      
-      let allSignaturesMap: Record<string, AllSignature[]> = {};
-      
+
+      const allSignaturesMap: Record<string, AllSignature[]> = {};
+
       if (clearanceIds.length > 0) {
         const { data: allSigs } = await supabase
           .from('clearance_signatures')
           .select('id, status, sequence_order, clearance_request_id, signatory_group, authority_sequence_order')
           .in('clearance_request_id', clearanceIds);
-        
+
         // Group by clearance_request_id
-        (allSigs || []).forEach((sig: any) => {
+        (allSigs || []).forEach((sig: AllSignature) => {
           if (!allSignaturesMap[sig.clearance_request_id]) {
             allSignaturesMap[sig.clearance_request_id] = [];
           }
@@ -218,22 +253,22 @@ export default function SignatoryDashboard() {
       }
 
       // Compute canSign for each signature (hybrid: standard=flexible, authority=sequential)
-      const processedSignatures = (data || []).map((sig: any) => {
+      const processedSignatures = rows.map((sig: RawPendingRow) => {
         const clearanceId = sig.clearance_request?.id;
         const studentId = sig.clearance_request?.student_id;
-        const allSigsForRequest = allSignaturesMap[clearanceId] || [];
-        
+        const allSigsForRequest = clearanceId ? allSignaturesMap[clearanceId] || [] : [];
+
         let canSign = false;
         if (sig.status === 'pending') {
           const isAuthority = sig.signatory_group === 'authority' && sig.authority_sequence_order != null;
           if (isAuthority) {
             const prevAuthority = allSigsForRequest.filter(
-              (s: any) =>
+              (s: AllSignature) =>
                 s.signatory_group === 'authority' &&
                 s.authority_sequence_order != null &&
                 (s.authority_sequence_order ?? 0) < (sig.authority_sequence_order ?? 0)
             );
-            canSign = prevAuthority.every((s: any) => s.status === 'approved');
+            canSign = prevAuthority.every((s: AllSignature) => s.status === 'approved');
           } else {
             canSign = true; // Standard: flexible order
           }
@@ -317,7 +352,12 @@ export default function SignatoryDashboard() {
     }
   };
 
-  const pendingCount = signatures.filter((s) => s.status === 'pending').length;
+  /** All rows still marked pending (includes blocked by authority sequence). */
+  const allPendingCount = signatures.filter((s) => s.status === 'pending').length;
+  /** You can sign these now (standard or your turn in authority chain). */
+  const needsActionCount = signatures.filter((s) => s.status === 'pending' && s.canSign).length;
+  /** Waiting on other signatories before you can act. */
+  const blockedPendingCount = signatures.filter((s) => s.status === 'pending' && !s.canSign).length;
   const approvedCount = signatures.filter((s) => s.status === 'approved').length;
   const rejectedCount = signatures.filter((s) => s.status === 'rejected').length;
 
@@ -337,19 +377,21 @@ export default function SignatoryDashboard() {
     signatures.filter((s) => s.status === 'rejected').map((s) => s.clearance_request?.student_id).filter(Boolean)
   ).size;
 
-  // Progress chart data (approved vs pending, exclude rejected)
-  const totalForChart = approvedCount + pendingCount;
+  // Progress chart: your completed vs still outstanding (actionable + blocked pending)
+  const totalForChart = approvedCount + allPendingCount;
   const progressChartData = totalForChart > 0
     ? [
-        { name: 'Approved', value: approvedCount, fill: '#10b981' },
-        { name: 'Pending', value: pendingCount, fill: '#eab308' },
+        { name: 'Signed by you', value: approvedCount, fill: '#10b981' },
+        { name: 'Needs your signature', value: needsActionCount, fill: '#ca8a04' },
+        { name: 'Waiting on others', value: blockedPendingCount, fill: '#fde047' },
       ].filter((d) => d.value > 0)
     : [];
   const approvedPct = totalForChart > 0 ? Math.round((approvedCount / totalForChart) * 100) : 0;
 
   // Bar chart data for status breakdown
   const statusBarData = [
-    { name: 'Pending', count: pendingCount, fill: '#eab308' },
+    { name: 'Needs signature', count: needsActionCount, fill: '#ca8a04' },
+    { name: 'Waiting on others', count: blockedPendingCount, fill: '#fde047' },
     { name: 'Approved', count: approvedCount, fill: '#10b981' },
     { name: 'Rejected', count: rejectedCount, fill: '#ef4444' },
   ].filter((d) => d.count > 0);
@@ -371,7 +413,7 @@ export default function SignatoryDashboard() {
       });
       result.push({
         date: dateStr,
-        pending: daySigs.filter((s) => s.status === 'pending').length,
+        pending: daySigs.filter((s) => s.status === 'pending' && s.canSign).length,
         approved: daySigs.filter((s) => s.status === 'approved').length,
         rejected: daySigs.filter((s) => s.status === 'rejected').length,
         total: daySigs.length,
@@ -381,7 +423,14 @@ export default function SignatoryDashboard() {
   })();
 
   const filteredSignatures = signatures.filter((s) => {
-    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+    const matchesStatus =
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'action'
+          ? s.status === 'pending' && s.canSign
+          : statusFilter === 'pending'
+            ? s.status === 'pending'
+            : s.status === statusFilter;
     const query = searchQuery.toLowerCase();
     const matchesSearch = !query || 
       s.clearance_request.title.toLowerCase().includes(query) ||
@@ -467,6 +516,24 @@ export default function SignatoryDashboard() {
 
       if (error) throw error;
 
+      const sid = signatoryId;
+      if (sid) {
+        for (const sig of signatures) {
+          if (!selectedIds.has(sig.id)) continue;
+          const crId = sig.clearance_request?.id;
+          if (!crId) continue;
+          void logActivity({
+            action: bulkActionType === 'approve' ? 'sign_clearance' : 'reject_clearance',
+            details: {
+              clearance_request_id: crId,
+              signatory_id: sid,
+              signature_id: sig.id,
+              bulk: true,
+            },
+          });
+        }
+      }
+
       toast.success(`${selectedIds.size} request(s) ${bulkActionType === 'approve' ? 'signed' : 'rejected'} successfully`);
       setBulkDialogOpen(false);
       setSelectedIds(new Set());
@@ -506,7 +573,9 @@ export default function SignatoryDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Signatory Dashboard</h1>
+            <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">
+              {location.pathname.includes('/requests') ? 'To sign' : 'Signatory dashboard'}
+            </h1>
             {signatoryInfo && (signatoryInfo.position || signatoryInfo.department) && (
               <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-medium bg-primary/10 text-primary border border-primary/20">
                 {[signatoryInfo.position, signatoryInfo.department].filter(Boolean).join(' • ')}
@@ -523,20 +592,34 @@ export default function SignatoryDashboard() {
             {signatoryInfo ? `${signatoryInfo.name} — Review and sign student requests` : 'Review and sign student requests'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary/20 bg-primary/5 shadow-sm hover:shadow-md transition-all duration-300 hover:border-primary/30">
-            <List className="h-5 w-5 text-primary" />
-            <span className="text-2xl font-bold tabular-nums text-foreground">{totalRequests}</span>
-            <span className="text-sm text-muted-foreground">request{totalRequests !== 1 ? 's' : ''}</span>
-          </div>
-          <Button
-            variant={showAllRequests ? 'secondary' : 'outline'}
-            onClick={() => setShowAllRequests(!showAllRequests)}
-            className="transition-all duration-300 hover:scale-[1.02]"
+        <div className="flex flex-wrap items-center gap-3">
+          <div
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border shadow-sm ${
+              studentsAwaiting === 0
+                ? 'border-emerald-500/30 bg-emerald-500/5'
+                : 'border-amber-500/30 bg-amber-500/5'
+            }`}
           >
-            <ChevronDown className={`h-4 w-4 mr-2 transition-transform duration-300 ${showAllRequests ? 'rotate-180' : ''}`} />
-            {showAllRequests ? 'Hide requests' : 'See all requests'}
-          </Button>
+            <Clock
+              className={`h-5 w-5 shrink-0 ${studentsAwaiting === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}
+            />
+            {studentsAwaiting === 0 ? (
+              <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">All caught up — no signature needed</span>
+            ) : (
+              <>
+                <span className="text-2xl font-bold tabular-nums text-amber-700 dark:text-amber-300">{studentsAwaiting}</span>
+                <span className="text-sm text-muted-foreground">
+                  student{studentsAwaiting !== 1 ? 's' : ''} {studentsAwaiting === 1 ? 'needs' : 'need'} your signature
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-muted/30 text-sm text-muted-foreground">
+            <List className="h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-semibold text-foreground tabular-nums">{totalRequests}</span> assigned clearance{totalRequests !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -559,8 +642,11 @@ export default function SignatoryDashboard() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">{TERMS.PENDING}</p>
-                <p className="text-2xl font-bold mt-1 tabular-nums text-amber-600 dark:text-amber-400">{pendingCount}</p>
+                <p className="text-sm font-medium text-muted-foreground">Needs your signature</p>
+                <p className="text-2xl font-bold mt-1 tabular-nums text-amber-600 dark:text-amber-400">{needsActionCount}</p>
+                {blockedPendingCount > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">{blockedPendingCount} waiting on other signatories</p>
+                )}
               </div>
               <div className="p-3 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
                 <Clock className="h-6 w-6" />
@@ -572,7 +658,7 @@ export default function SignatoryDashboard() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">{TERMS.APPROVED}</p>
+                <p className="text-sm font-medium text-muted-foreground">Signed by you</p>
                 <p className="text-2xl font-bold mt-1 tabular-nums text-emerald-600 dark:text-emerald-400">{approvedCount}</p>
               </div>
               <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -596,199 +682,27 @@ export default function SignatoryDashboard() {
         </Card>
       </div>
 
-      {/* Interactive Charts - Real-time analytics (always visible) */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Status breakdown - Bar chart */}
-        <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-lg transition-all duration-300">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base font-semibold">Status Breakdown</CardTitle>
-            </div>
-            <CardDescription>Distribution of requests by status</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {statusBarData.length > 0 ? (
-              <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={statusBarData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} fontSize={12} />
-                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: '12px', border: '1px solid hsl(var(--border))' }}
-                      cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
-                      formatter={(value: number) => [value, 'Count']}
-                    />
-                    <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Requests">
-                      {statusBarData.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-[220px] flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                <BarChart3 className="h-12 w-12 opacity-30" />
-                <p className="text-sm">No requests yet</p>
-                <p className="text-xs">Charts will appear when students submit clearance requests</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Requests over time - Area chart */}
-        <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-lg transition-all duration-300">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base font-semibold">Activity (Last 7 Days)</CardTitle>
-            </div>
-            <CardDescription>Requests received per day</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {requestsOverTimeData.some((d) => d.total > 0) ? (
-              <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={requestsOverTimeData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorPending" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#eab308" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorApproved" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorRejected" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: '12px', border: '1px solid hsl(var(--border))' }}
-                      formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
-                    />
-                    <Legend />
-                    <Area type="monotone" dataKey="pending" stackId="1" stroke="#eab308" fill="url(#colorPending)" name="Pending" />
-                    <Area type="monotone" dataKey="approved" stackId="1" stroke="#10b981" fill="url(#colorApproved)" name="Approved" />
-                    <Area type="monotone" dataKey="rejected" stackId="1" stroke="#ef4444" fill="url(#colorRejected)" name="Rejected" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-[220px] flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                <TrendingUp className="h-12 w-12 opacity-30" />
-                <p className="text-sm">No activity yet</p>
-                <p className="text-xs">Activity will appear when requests are assigned to you</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Donut + Student counts - Compact overview (always visible) */}
-      <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Overview</CardTitle>
-          <CardDescription>Completion rate and student breakdown</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {signatures.length > 0 ? (
-            <div className="flex flex-col lg:flex-row items-center gap-6 lg:gap-8">
-              <div className="h-[160px] w-full max-w-[160px] shrink-0 flex items-center justify-center relative">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={progressChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius="50%"
-                      outerRadius="85%"
-                      paddingAngle={2}
-                      dataKey="value"
-                      stroke="none"
-                      animationDuration={800}
-                      animationBegin={0}
-                    >
-                      {progressChartData.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <span className="text-xl font-bold text-foreground">{approvedPct}%</span>
-                </div>
-              </div>
-              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
-                <div className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors">
-                  <Users className="h-8 w-8 text-muted-foreground/60" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total Students</p>
-                    <p className="text-lg font-bold tabular-nums">{uniqueStudentIds.size}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 transition-colors">
-                  <Clock className="h-8 w-8 text-amber-500/70" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Awaiting</p>
-                    <p className="text-lg font-bold tabular-nums text-amber-600 dark:text-amber-400">{studentsAwaiting}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors">
-                  <CheckCircle className="h-8 w-8 text-emerald-500/70" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Approved</p>
-                    <p className="text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{studentsApproved}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-xl border border-destructive/20 bg-destructive/5 hover:bg-destructive/10 transition-colors">
-                  <XCircle className="h-8 w-8 text-destructive/70" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Rejected</p>
-                    <p className="text-lg font-bold tabular-nums text-destructive">{studentsRejected}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col lg:flex-row items-center gap-6 py-8">
-              <div className="h-[120px] w-[120px] rounded-full border-2 border-dashed border-muted flex items-center justify-center">
-                <Users className="h-10 w-10 text-muted-foreground/40" />
-              </div>
-              <div className="flex-1 text-center lg:text-left">
-                <p className="text-muted-foreground">No requests assigned yet</p>
-                <p className="text-sm text-muted-foreground/80 mt-1">Student breakdown will appear when clearance requests are assigned to you</p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Requests List - shown when "See all requests" is clicked */}
-      {showAllRequests && (
+      {/* Requests list — primary work queue */}
       <Card className="border border-border/50 rounded-xl shadow-sm bg-card">
         <CardHeader className="flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <CardTitle className="text-base font-semibold">Students Who Requested</CardTitle>
-              <CardDescription className="text-sm">List of students and their clearance requests</CardDescription>
+              <CardTitle className="text-base font-semibold">Clearance requests</CardTitle>
+              <CardDescription className="text-sm">
+                Default shows requests you can act on now. Use the filter to see all statuses.
+              </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Filter status" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="action">Needs my signature ({needsActionCount})</SelectItem>
                   <SelectItem value="all">All ({signatures.length})</SelectItem>
-                  <SelectItem value="pending">{TERMS.PENDING} ({pendingCount})</SelectItem>
-                  <SelectItem value="approved">{TERMS.APPROVED} ({approvedCount})</SelectItem>
+                  <SelectItem value="pending">All pending ({allPendingCount})</SelectItem>
+                  <SelectItem value="approved">Signed by you ({approvedCount})</SelectItem>
                   <SelectItem value="rejected">{TERMS.REJECTED} ({rejectedCount})</SelectItem>
                 </SelectContent>
               </Select>
@@ -833,12 +747,20 @@ export default function SignatoryDashboard() {
             <div className="text-center py-12">
               <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
               <h3 className="mt-4 text-lg font-semibold">
-                {signatures.length === 0 ? 'No requests assigned' : 'No matching requests'}
+                {signatures.length === 0
+                  ? 'No requests assigned'
+                  : statusFilter === 'action' && needsActionCount === 0
+                    ? "You're all caught up"
+                    : 'No matching requests'}
               </h3>
               <p className="text-muted-foreground mt-2">
-                {signatures.length === 0 
-                  ? "You don't have any requests to review"
-                  : `No ${statusFilter} requests found`}
+                {signatures.length === 0
+                  ? "You don't have any clearance requests assigned to you yet."
+                  : statusFilter === 'action' && needsActionCount === 0
+                    ? 'Nothing needs your signature right now. Pending items may be waiting on other signatories, or try “All pending” in the filter.'
+                    : statusFilter === 'action'
+                      ? 'Try adjusting search or filter.'
+                      : 'Try a different filter or search.'}
               </p>
             </div>
           ) : (
@@ -1018,7 +940,180 @@ export default function SignatoryDashboard() {
           )}
         </CardContent>
       </Card>
-      )}
+      {/* Interactive Charts - Real-time analytics (always visible) */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Status breakdown - Bar chart */}
+        <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-lg transition-all duration-300">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base font-semibold">Status Breakdown</CardTitle>
+            </div>
+            <CardDescription>Needs action vs waiting on others vs completed</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {statusBarData.length > 0 ? (
+              <div className="h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={statusBarData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} fontSize={12} />
+                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: '1px solid hsl(var(--border))' }}
+                      cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
+                      formatter={(value: number) => [value, 'Count']}
+                    />
+                    <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Requests">
+                      {statusBarData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-[220px] flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <BarChart3 className="h-12 w-12 opacity-30" />
+                <p className="text-sm">No requests yet</p>
+                <p className="text-xs">Charts will appear when students submit clearance requests</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Requests over time - Area chart */}
+        <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden hover:shadow-lg transition-all duration-300">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base font-semibold">Activity (Last 7 Days)</CardTitle>
+            </div>
+            <CardDescription>Signatures you can act on (per day)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {requestsOverTimeData.some((d) => d.total > 0) ? (
+              <div className="h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={requestsOverTimeData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorPending" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#eab308" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="colorApproved" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="colorRejected" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: '1px solid hsl(var(--border))' }}
+                      formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
+                    />
+                    <Legend />
+                    <Area type="monotone" dataKey="pending" stackId="1" stroke="#eab308" fill="url(#colorPending)" name="Needs your signature" />
+                    <Area type="monotone" dataKey="approved" stackId="1" stroke="#10b981" fill="url(#colorApproved)" name="Approved" />
+                    <Area type="monotone" dataKey="rejected" stackId="1" stroke="#ef4444" fill="url(#colorRejected)" name="Rejected" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-[220px] flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <TrendingUp className="h-12 w-12 opacity-30" />
+                <p className="text-sm">No activity yet</p>
+                <p className="text-xs">Activity will appear when requests are assigned to you</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Donut + Student counts - Compact overview (always visible) */}
+      <Card className="border border-border/50 rounded-xl shadow-sm bg-card/80 backdrop-blur-sm overflow-hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Overview</CardTitle>
+          <CardDescription>Completion rate and student breakdown</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {signatures.length > 0 ? (
+            <div className="flex flex-col lg:flex-row items-center gap-6 lg:gap-8">
+              <div className="h-[160px] w-full max-w-[160px] shrink-0 flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={progressChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="50%"
+                      outerRadius="85%"
+                      paddingAngle={2}
+                      dataKey="value"
+                      stroke="none"
+                      animationDuration={800}
+                      animationBegin={0}
+                    >
+                      {progressChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="text-xl font-bold text-foreground">{approvedPct}%</span>
+                </div>
+              </div>
+              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
+                <div className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors">
+                  <Users className="h-8 w-8 text-muted-foreground/60" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Students</p>
+                    <p className="text-lg font-bold tabular-nums">{uniqueStudentIds.size}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 transition-colors">
+                  <Clock className="h-8 w-8 text-amber-500/70" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Need your signature</p>
+                    <p className="text-lg font-bold tabular-nums text-amber-600 dark:text-amber-400">{studentsAwaiting}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors">
+                  <CheckCircle className="h-8 w-8 text-emerald-500/70" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Approved</p>
+                    <p className="text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{studentsApproved}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-xl border border-destructive/20 bg-destructive/5 hover:bg-destructive/10 transition-colors">
+                  <XCircle className="h-8 w-8 text-destructive/70" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Rejected</p>
+                    <p className="text-lg font-bold tabular-nums text-destructive">{studentsRejected}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col lg:flex-row items-center gap-6 py-8">
+              <div className="h-[120px] w-[120px] rounded-full border-2 border-dashed border-muted flex items-center justify-center">
+                <Users className="h-10 w-10 text-muted-foreground/40" />
+              </div>
+              <div className="flex-1 text-center lg:text-left">
+                <p className="text-muted-foreground">No requests assigned yet</p>
+                <p className="text-sm text-muted-foreground/80 mt-1">Student breakdown will appear when clearance requests are assigned to you</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
 
       {/* Sign / Reject Confirmation Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

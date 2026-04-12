@@ -6,8 +6,9 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/lib/auth";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
-import NewClearance from "./pages/NewClearance";
 import Clearances from "./pages/Clearances";
+import StudentClearanceCalendar from "./pages/StudentClearanceCalendar";
+import StudentClearanceReport from "./pages/StudentClearanceReport";
 import ClearanceDetail from "./pages/ClearanceDetail";
 import Signatories from "./pages/Signatories";
 import Students from "./pages/Students";
@@ -17,6 +18,7 @@ import PendingRequests from "./pages/PendingRequests";
 import ApprovedClearances from "./pages/ApprovedClearances";
 import SignatoryClearanceDetail from "./pages/SignatoryClearanceDetail";
 import BulkAssignSignatories from "./pages/BulkAssignSignatories";
+import Reports from "./pages/Reports";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
@@ -49,8 +51,24 @@ const App = () => (
               <Route
                 path="/dashboard/clearances"
                 element={
-                  <ProtectedRoute roles={["student", "superadmin"]}>
+                  <ProtectedRoute roles={["student"]}>
                     <Clearances />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/clearances/calendar"
+                element={
+                  <ProtectedRoute roles={["student"]}>
+                    <StudentClearanceCalendar />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/clearances/report"
+                element={
+                  <ProtectedRoute roles={["student"]}>
+                    <StudentClearanceReport />
                   </ProtectedRoute>
                 }
               />
@@ -58,7 +76,7 @@ const App = () => (
                 path="/dashboard/clearances/new"
                 element={
                   <ProtectedRoute roles={["student"]}>
-                    <NewClearance />
+                    <Navigate to="/dashboard/clearances" replace />
                   </ProtectedRoute>
                 }
               />
@@ -115,6 +133,14 @@ const App = () => (
                 element={
                   <ProtectedRoute roles={["superadmin"]}>
                     <BulkAssignSignatories />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/reports"
+                element={
+                  <ProtectedRoute roles={["superadmin"]}>
+                    <Reports />
                   </ProtectedRoute>
                 }
               />

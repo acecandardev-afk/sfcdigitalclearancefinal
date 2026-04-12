@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { supabase } from '@/integrations/supabase/client';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,8 @@ import {
   UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { edgeFunctionInvokeErrorDetail } from '@/lib/edgeFunctionError';
+import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 
 interface StudentProfile {
   id: string;
@@ -210,15 +213,13 @@ export default function Students() {
   const onCreateSubmit = async (data: CreateFormData) => {
     setFormLoading(true);
     try {
-      const { data: result, error } = await supabase.functions.invoke('create-student-account', {
-        body: {
-          email: data.email,
-          password: data.password,
-          full_name: data.full_name,
-          student_id: data.student_id || undefined,
-          year_level: data.year_level || undefined,
-          course: data.course || undefined,
-        },
+      const { data: result, error } = await invokeAuthenticatedFunction('create-student-account', {
+        email: data.email,
+        password: data.password,
+        full_name: data.full_name,
+        student_id: data.student_id || undefined,
+        year_level: data.year_level || undefined,
+        course: data.course || undefined,
       });
 
       if (error) throw error;
@@ -229,7 +230,7 @@ export default function Students() {
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error creating student:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to create account');
+      toast.error(await edgeFunctionInvokeErrorDetail(err, 'create-student-account'));
     } finally {
       setFormLoading(false);
     }
@@ -256,7 +257,7 @@ export default function Students() {
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error updating student:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to update');
+      toast.error(safeActionErrorMessage(err, 'Failed to update student'));
     } finally {
       setFormLoading(false);
     }
@@ -279,7 +280,7 @@ export default function Students() {
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error archiving:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to update');
+      toast.error(safeActionErrorMessage(err, 'Could not update archive status'));
     }
   };
 
@@ -297,7 +298,7 @@ export default function Students() {
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error archiving:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to archive');
+      toast.error(safeActionErrorMessage(err, 'Failed to archive'));
     }
   };
 
@@ -315,7 +316,7 @@ export default function Students() {
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error restoring:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to restore');
+      toast.error(safeActionErrorMessage(err, 'Failed to restore'));
     }
   };
 

@@ -1,4 +1,7 @@
-project_id = "onubccchgdcagucuqrvy"
+project_id = "dzhwxlwjaccasitkarhm"
 
 [functions.notify-signatories]
+verify_jwt = false
+
+[functions.auto-approve-stale-signatures]
 verify_jwt = false

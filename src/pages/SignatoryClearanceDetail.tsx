@@ -32,6 +32,9 @@ import { toast } from 'sonner';
 import ClearanceFilesViewer from '@/components/dashboard/ClearanceFilesViewer';
 import ApprovedStamp from '@/components/clearance/ApprovedStamp';
 import { TERMS } from '@/lib/terms';
+import { postgrestErrorMessage, safeActionErrorMessage } from '@/lib/userFacingError';
+import { logActivity } from '@/hooks/useActivityLog';
+import { Separator } from '@/components/ui/separator';
 
 interface Signatory {
   id: string;
@@ -65,9 +68,24 @@ interface ClearanceDetail {
     student_id: string | null;
     course: string | null;
     year_level: string | null;
+    address?: string | null;
+    age?: number | null;
     email: string;
   };
 }
+
+type RawSignatorySignatureRow = {
+  id: string;
+  signatory_id: string;
+  status: Signature['status'];
+  notes: string | null;
+  remarks: string | null;
+  sequence_order: number;
+  signed_at: string | null;
+  signatory_group?: 'standard' | 'authority';
+  authority_sequence_order?: number | null;
+  signatories: Signatory | null;
+};
 
 export default function SignatoryClearanceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -84,6 +102,7 @@ export default function SignatoryClearanceDetail() {
   const [remarks, setRemarks] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
+  const [studentOfficeNote, setStudentOfficeNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (user && id) {
@@ -110,7 +129,7 @@ export default function SignatoryClearanceDetail() {
 
       if (clearanceError) {
         console.error('Clearance fetch error:', clearanceError);
-        toast.error(clearanceError.message || 'Failed to load request');
+        toast.error(postgrestErrorMessage(clearanceError));
         setLoading(false);
         return;
       }
@@ -123,17 +142,21 @@ export default function SignatoryClearanceDetail() {
       // Fetch student profile separately
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('full_name, student_id, course, year_level, email')
+        .select('full_name, student_id, course, year_level, address, age, email')
         .eq('id', clearanceData.student_id)
         .maybeSingle();
 
+      const pRow = profileData as any;
+
       setClearance({
         ...clearanceData,
-        student: profileData || {
+        student: pRow || {
           full_name: 'Unknown',
           student_id: null,
           course: null,
           year_level: null,
+          address: null,
+          age: null,
           email: '',
         },
       });
@@ -163,15 +186,27 @@ export default function SignatoryClearanceDetail() {
 
       if (signaturesError) throw signaturesError;
 
-      const processedSignatures = (signaturesData || []).map((sig: any) => ({
-        ...sig,
-        signatory: sig.signatories,
-      }));
+      const processedSignatures = ((signaturesData || []) as any[]).map((sig: RawSignatorySignatureRow): Signature => {
+        const { signatories, ...rest } = sig;
+        return {
+          ...rest,
+          signatory: signatories ?? { id: '', name: '', position: '', department: '' },
+        };
+      });
 
       setSignatures(processedSignatures);
 
       // Find my signature and check if I can sign (hybrid sequence logic)
       if (signatoryData) {
+        const { data: noteData } = await supabase
+          .from('student_clearance_step_notes')
+          .select('note')
+          .eq('clearance_request_id', id)
+          .eq('signatory_id', signatoryData.id)
+          .maybeSingle();
+        const n = (noteData?.note as string)?.trim();
+        setStudentOfficeNote(n ? (noteData?.note as string) : null);
+
         const mySig = processedSignatures.find(
           (s: Signature) => s.signatory_id === signatoryData.id
         );
@@ -195,10 +230,12 @@ export default function SignatoryClearanceDetail() {
         } else {
           setCanSign(false);
         }
+      } else {
+        setStudentOfficeNote(null);
       }
     } catch (error) {
       console.error('Error fetching clearance:', error);
-      toast.error('Failed to load request details');
+      toast.error(safeActionErrorMessage(error, 'Failed to load request details'));
     } finally {
       setLoading(false);
     }
@@ -212,7 +249,7 @@ export default function SignatoryClearanceDetail() {
   };
 
   const submitAction = async () => {
-    if (!mySignature) return;
+    if (!mySignature || !id) return;
 
     setActionLoading(true);
     try {
@@ -228,6 +265,15 @@ export default function SignatoryClearanceDetail() {
 
       if (error) throw error;
 
+      void logActivity({
+        action: actionType === 'approve' ? 'sign_clearance' : 'reject_clearance',
+        details: {
+          clearance_request_id: id,
+          signatory_id: mySignature.signatory_id,
+          signature_id: mySignature.id,
+        },
+      });
+
       toast.success(
         `Request ${actionType === 'approve' ? 'approved' : 'rejected'} successfully`
       );
@@ -235,7 +281,7 @@ export default function SignatoryClearanceDetail() {
       fetchClearanceDetail();
     } catch (error) {
       console.error('Error updating signature:', error);
-      toast.error('Failed to update signature');
+      toast.error(safeActionErrorMessage(error, 'Could not save your decision. Please try again.'));
     } finally {
       setActionLoading(false);
     }
@@ -304,306 +350,189 @@ export default function SignatoryClearanceDetail() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        {/* Header */}
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-display font-bold">{clearance.title}</h1>
-              {getStatusBadge(clearance.status)}
-            </div>
-            <p className="text-muted-foreground mt-1">
-              Submitted on{' '}
-              {new Date(clearance.created_at).toLocaleDateString('en-US', {
-                month: 'long',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </p>
+          <div>
+            <h1 className="text-2xl font-display font-bold">Clearance Signing</h1>
+            <p className="text-muted-foreground">Review student details and attachments before signing</p>
           </div>
-          <Button variant="outline" onClick={() => setFilesViewerOpen(true)}>
-            <Paperclip className="h-4 w-4 mr-2" />
-            View Files
-          </Button>
-          {canSign && (
-            <>
-              <Button variant="success" onClick={() => handleAction('approve')}>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Approve
-              </Button>
-              <Button variant="destructive" onClick={() => handleAction('reject')}>
-                <XCircle className="h-4 w-4 mr-2" />
-                Reject
-              </Button>
-            </>
-          )}
         </div>
 
-        {/* Student Info */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="text-lg">Student Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Full Name</p>
-                <p className="font-medium">{clearance.student.full_name}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="shadow-card lg:col-span-2 overflow-hidden">
+            <CardHeader className="border-b bg-muted/20">
+              <CardTitle className="font-display flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                Clearance Request
+              </CardTitle>
+              <CardDescription>{clearance.title}</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge
+                  variant={
+                    clearance.status === 'approved'
+                      ? 'approved'
+                      : clearance.status === 'rejected'
+                        ? 'rejected'
+                        : 'pending'
+                  }
+                >
+                  {clearance.status.toUpperCase()}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  Submitted {new Date(clearance.created_at).toLocaleDateString()}
+                </span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Student ID</p>
-                <p className="font-medium">{clearance.student.student_id || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Email</p>
-                <p className="font-medium">{clearance.student.email || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Department</p>
-                <p className="font-medium">{clearance.student.course || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Year Level</p>
-                <p className="font-medium">{clearance.student.year_level || 'N/A'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Description */}
-        {clearance.description && (
+              <div className="rounded-xl border border-border/60 bg-card p-5">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Student</p>
+                <p className="text-xl font-semibold mt-1 truncate">{clearance.student.full_name}</p>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  <div className="text-muted-foreground">Student ID</div>
+                  <div className="font-medium text-foreground">{clearance.student.student_id || '—'}</div>
+                  <div className="text-muted-foreground">Course</div>
+                  <div className="font-medium text-foreground">{clearance.student.course || '—'}</div>
+                  <div className="text-muted-foreground">Year level</div>
+                  <div className="font-medium text-foreground">{clearance.student.year_level || '—'}</div>
+                  <div className="text-muted-foreground">Age</div>
+                  <div className="font-medium text-foreground">{clearance.student.age ?? '—'}</div>
+                  <div className="text-muted-foreground">Address</div>
+                  <div className="font-medium text-foreground">{clearance.student.address || '—'}</div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-card p-5">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Purpose / Message</p>
+                <p className="mt-2 text-sm leading-relaxed text-foreground">{clearance.description || '—'}</p>
+              </div>
+
+              {studentOfficeNote ? (
+                <div className="rounded-xl border border-border/60 bg-amber-500/5 p-5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Student note to your office</p>
+                  <p className="mt-2 text-sm text-foreground whitespace-pre-wrap">{studentOfficeNote}</p>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card className="shadow-card">
             <CardHeader>
-              <CardTitle className="text-lg">Description</CardTitle>
+              <CardTitle className="font-display">Signing Panel</CardTitle>
+              <CardDescription>Attachments and signing actions</CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">{clearance.description}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* My Signing Status */}
-        {mySignature && (
-          <Card className={`shadow-card ${canSign ? 'border-primary border-2' : ''}`}>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                Your Signing Status
-                {!canSign && mySignature.status === 'pending' && (
-                  <Lock className="h-4 w-4 text-warning" />
-                )}
-              </CardTitle>
-              <CardDescription>
-                {mySignature.status === 'pending' && !canSign
-                  ? 'Pending approval from previous signatories'
-                  : mySignature.status === 'pending'
-                  ? 'This request is ready for your approval'
-                  : `You ${mySignature.status} this request`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-4">
-                {getStatusIcon(mySignature.status)}
-                {getStatusBadge(mySignature.status)}
-                {mySignature.signed_at && (
-                  <span className="text-sm text-muted-foreground">
-                    on{' '}
-                    {new Date(mySignature.signed_at).toLocaleDateString('en-US', {
-                      month: 'long',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
-                )}
+            <CardContent className="space-y-4">
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                <p className="text-sm font-medium">Attachments</p>
+                <p className="text-xs text-muted-foreground mt-1">Preview student uploads before signing.</p>
+                <Button variant="outline" className="w-full mt-3" onClick={() => setFilesViewerOpen(true)}>
+                  <Paperclip className="h-4 w-4 mr-2" />
+                  View submitted documents
+                </Button>
               </div>
-              {mySignature.remarks && (
-                <div className="mt-4 p-3 bg-muted rounded-lg">
-                  <p className="text-sm font-medium">Your Remarks:</p>
-                  <p className="text-sm text-muted-foreground">{mySignature.remarks}</p>
+
+              {!mySignature ? (
+                <div className="rounded-xl border border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
+                  You are not assigned to sign this request.
+                </div>
+              ) : mySignature.status !== 'pending' ? (
+                <div className="rounded-xl border border-border/60 bg-muted/10 p-4 text-sm">
+                  <p className="font-medium">Decision recorded</p>
+                  <p className="text-muted-foreground mt-1">Status: {mySignature.status.toUpperCase()}</p>
+                </div>
+              ) : canSign ? (
+                <div className="space-y-2">
+                  <Button className="w-full" onClick={() => handleAction('approve')}>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Sign / Approve
+                  </Button>
+                  <Button variant="destructive" className="w-full" onClick={() => handleAction('reject')}>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject
+                  </Button>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <Lock className="h-4 w-4 mt-0.5 text-amber-600" />
+                    <div>
+                      <p className="font-medium">Signing locked</p>
+                      <p className="text-muted-foreground mt-1">Previous authority signatories must approve before you can sign.</p>
+                    </div>
+                  </div>
                 </div>
               )}
+
+              <Separator />
+              <div className="text-xs text-muted-foreground">Tip: Use “Preview” to check documents inside the system.</div>
             </CardContent>
           </Card>
-        )}
+        </div>
 
-        {/* All Signatures */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle className="text-lg">Signing History</CardTitle>
-            <CardDescription>
-              All signatories and their remarks for this request
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="font-display">
+                {actionType === 'approve' ? 'Confirm Sign' : 'Reject Request'}
+              </DialogTitle>
+              <DialogDescription>
+                {actionType === 'approve'
+                  ? 'You are about to sign this clearance request. Add optional notes below, then confirm.'
+                  : 'Provide a reason for declining this request.'}
+              </DialogDescription>
+            </DialogHeader>
             <div className="space-y-4">
-              {signatures.map((sig) => {
-                const isMe = mySignature?.id === sig.id;
-                const previousApproved = signatures
-                  .filter((s) => s.sequence_order < sig.sequence_order)
-                  .every((s) => s.status === 'approved');
-                const isWaiting = sig.status === 'pending' && !previousApproved;
-
-                return (
-                  <div
-                    key={sig.id}
-                    className={`flex flex-col p-4 rounded-lg border ${
-                      isMe ? 'border-primary bg-primary/5' : 'border-border'
-                    } ${isWaiting ? 'opacity-60' : ''}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground text-sm font-bold">
-                          {sig.sequence_order}
-                        </div>
-                        <div className="p-2 bg-muted rounded-full">
-                          <User className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold">{sig.signatory.name}</p>
-                            {isMe && (
-                              <Badge variant="outline" className="text-xs">
-                                You
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {sig.signatory.position} • {sig.signatory.department}
-                          </p>
-                          {sig.signed_at && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Signed on{' '}
-                              {new Date(sig.signed_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          )}
-                          {isWaiting && (
-                            <p className="text-xs text-warning mt-1 flex items-center gap-1">
-                              <Lock className="h-3 w-3" />
-                              Pending previous signatories
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {sig.status === 'approved' && sig.signed_at && (
-                          <ApprovedStamp
-                            signedAt={sig.signed_at}
-                            signatoryName={sig.signatory?.name}
-                            className="mr-2"
-                          />
-                        )}
-                        {getStatusIcon(sig.status)}
-                        {getStatusBadge(sig.status)}
-                      </div>
-                    </div>
-
-                    {/* Show remarks and notes */}
-                    {(sig.remarks || sig.notes) && (
-                      <div className="mt-4 pl-12 space-y-2">
-                        {sig.remarks && (
-                          <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
-                            <MessageSquare className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                            <div>
-                              <p className="text-xs font-medium text-primary">Remarks</p>
-                              <p className="text-sm text-muted-foreground">{sig.remarks}</p>
-                            </div>
-                          </div>
-                        )}
-                        {sig.notes && (
-                          <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
-                            <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                            <div>
-                              <p className="text-xs font-medium text-muted-foreground">Notes</p>
-                              <p className="text-sm text-muted-foreground">{sig.notes}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              <div className="space-y-2">
+                <Label>Notes (optional)</Label>
+                <Textarea
+                  placeholder={
+                    actionType === 'approve'
+                      ? 'Add any notes for the student...'
+                      : 'Explain why this request is being rejected...'
+                  }
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Remarks (optional)</Label>
+                <Textarea
+                  placeholder="Add any remarks that will be visible on the request..."
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Remarks will be displayed on the student's request record.</p>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={actionLoading}>
+                Cancel
+              </Button>
+              <Button onClick={submitAction} disabled={actionLoading}>
+                {actionLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <ClearanceFilesViewer
+          clearanceRequestId={clearance.id}
+          clearanceTitle={clearance.title}
+          studentName={clearance.student.full_name}
+          open={filesViewerOpen}
+          onOpenChange={setFilesViewerOpen}
+        />
       </div>
-
-      {/* Action Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-display">
-              {actionType === 'approve' ? 'Approve' : 'Reject'} Request
-            </DialogTitle>
-            <DialogDescription>
-              {actionType === 'approve'
-                ? 'Confirm approval of this request.'
-                : 'Provide a reason for rejecting this request.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Notes (optional)</Label>
-              <Textarea
-                placeholder={
-                  actionType === 'approve'
-                    ? 'Add any notes for the student...'
-                    : 'Explain why this request is being rejected...'
-                }
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Remarks (visible to other signatories)</Label>
-              <Textarea
-                placeholder="Add remarks that will be visible to the student and other signatories..."
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Remarks are visible to everyone viewing this request.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant={actionType === 'approve' ? 'success' : 'destructive'}
-              onClick={submitAction}
-              disabled={actionLoading}
-            >
-              {actionLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : actionType === 'approve' ? (
-                <CheckCircle className="h-4 w-4 mr-2" />
-              ) : (
-                <XCircle className="h-4 w-4 mr-2" />
-              )}
-              {actionType === 'approve' ? 'Approve' : 'Reject'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Files Viewer */}
-      <ClearanceFilesViewer
-        clearanceRequestId={clearance.id}
-        clearanceTitle={clearance.title}
-        studentName={clearance.student.full_name}
-        open={filesViewerOpen}
-        onOpenChange={setFilesViewerOpen}
-      />
     </DashboardLayout>
   );
 }

@@ -2,22 +2,42 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+function trimEnv(v: string | undefined): string {
+  if (v == null || v === '') return '';
+  return String(v).trim().replace(/^["']|["']$/g, '');
+}
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+const SUPABASE_URL = trimEnv(import.meta.env.VITE_SUPABASE_URL);
+/** Legacy anon JWT (eyJ…) from Dashboard → API. Prefer this if Edge Functions return "Invalid JWT" with a publishable key. */
+const SUPABASE_ANON_KEY = trimEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
+const SUPABASE_PUBLISHABLE_KEY = trimEnv(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+const SUPABASE_KEY = SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
-    'Missing Supabase env vars. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart the dev server.'
+    'Missing Supabase env vars. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY or VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart the dev server.'
   );
+}
+
+/** One storage bucket per project ref so switching .env URL does not reuse another project's session. */
+function authStorageKey(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    const ref = host.split('.')[0] || 'local';
+    return `sb-${ref}-auth-token`;
+  } catch {
+    return 'sb-auth-token';
+  }
 }
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     storage: localStorage,
+    storageKey: authStorageKey(SUPABASE_URL),
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
 });

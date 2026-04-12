@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -70,17 +71,27 @@ export default function NewClearance() {
         .eq('student_id', studentId)
         .order('sequence_order', { ascending: true });
 
+      type JoinedSignatory = {
+        id: string;
+        name: string;
+        position: string;
+        department: string;
+        signatory_group?: 'standard' | 'authority';
+        authority_sequence_order?: number | null;
+      };
+      type AssignmentRow = { sequence_order: number; signatories: JoinedSignatory };
+
       if (assignmentData && assignmentData.length > 0) {
         const list: DefaultSignatory[] = assignmentData
-          .filter((row: { signatories: unknown }) => row.signatories)
-          .map((row: any) => ({
+          .filter((row: AssignmentRow) => row.signatories)
+          .map((row: AssignmentRow) => ({
             id: row.signatories.id,
             name: row.signatories.name,
             position: row.signatories.position,
             department: row.signatories.department,
             order: row.sequence_order,
-            signatory_group: row.signatories?.signatory_group || 'standard',
-            authority_sequence_order: row.signatories?.authority_sequence_order ?? null,
+            signatory_group: row.signatories.signatory_group || 'standard',
+            authority_sequence_order: row.signatories.authority_sequence_order ?? null,
           }));
         setSignatories(list);
         setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
@@ -96,15 +107,15 @@ export default function NewClearance() {
       if (error) throw error;
 
       const list: DefaultSignatory[] = (defaultData || [])
-        .filter((row: { signatories: unknown }) => row.signatories)
-        .map((row: any) => ({
+        .filter((row: AssignmentRow) => row.signatories)
+        .map((row: AssignmentRow) => ({
           id: row.signatories.id,
           name: row.signatories.name,
           position: row.signatories.position,
           department: row.signatories.department,
           order: row.sequence_order,
-          signatory_group: row.signatories?.signatory_group || 'standard',
-          authority_sequence_order: row.signatories?.authority_sequence_order ?? null,
+          signatory_group: row.signatories.signatory_group || 'standard',
+          authority_sequence_order: row.signatories.authority_sequence_order ?? null,
         }));
       setSignatories(list);
       setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
@@ -202,11 +213,9 @@ export default function NewClearance() {
 
       if (signaturesError) throw signaturesError;
 
-      supabase.functions.invoke('notify-signatories', {
-        body: {
-          clearance_request_id: clearanceData.id,
-          signatory_ids: selectedSignatories.map((s) => s.id),
-        },
+      void invokeAuthenticatedFunction('notify-signatories', {
+        clearance_request_id: clearanceData.id,
+        signatory_ids: selectedSignatories.map((s) => s.id),
       }).catch(console.error);
 
       toast.success('Clearance request submitted! View status in My Requests.');

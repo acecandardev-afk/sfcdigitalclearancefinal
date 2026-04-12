@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 
@@ -34,10 +34,10 @@ export function useUserRole() {
     fetchRoles();
   }, [user]);
 
-  const hasRole = (role: AppRole) => roles.includes(role);
-  const isStudent = () => hasRole('student');
-  const isSignatory = () => hasRole('signatory');
-  const isSuperAdmin = () => hasRole('superadmin');
+  const hasRole = useCallback((role: AppRole) => roles.includes(role), [roles]);
+  const isStudent = useCallback(() => roles.includes('student'), [roles]);
+  const isSignatory = useCallback(() => roles.includes('signatory'), [roles]);
+  const isSuperAdmin = useCallback(() => roles.includes('superadmin'), [roles]);
 
   return { roles, loading, hasRole, isStudent, isSignatory, isSuperAdmin };
 }

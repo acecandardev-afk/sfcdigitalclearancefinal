@@ -8,9 +8,14 @@
     "build": "vite build",
     "seed": "npx tsx scripts/seed-test-users.ts",
     "seed:signatories": "npx tsx scripts/seed-signatories.ts",
+    "activate:signatory": "npx tsx scripts/activate-signatory-user.ts",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:function:signatory": "npx supabase functions deploy create-signatory-account",
+    "deploy:function:student": "npx supabase functions deploy create-student-account",
+    "deploy:function:notify": "npx supabase functions deploy notify-signatories",
+    "deploy:function:auto-approve": "npx supabase functions deploy auto-approve-stale-signatures"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

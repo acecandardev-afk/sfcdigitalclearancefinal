@@ -47,6 +47,7 @@ export type Database = {
       clearance_files: {
         Row: {
           clearance_request_id: string
+          clearance_signature_id: string | null
           file_name: string
           file_path: string
           file_size: number | null
@@ -55,6 +56,7 @@ export type Database = {
         }
         Insert: {
           clearance_request_id: string
+          clearance_signature_id?: string | null
           file_name: string
           file_path: string
           file_size?: number | null
@@ -63,6 +65,7 @@ export type Database = {
         }
         Update: {
           clearance_request_id?: string
+          clearance_signature_id?: string | null
           file_name?: string
           file_path?: string
           file_size?: number | null
@@ -78,6 +81,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      clearance_default_signatories: {
+        Row: {
+          created_at: string | null
+          id: string
+          sequence_order: number
+          signatory_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          sequence_order: number
+          signatory_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          sequence_order?: number
+          signatory_id?: string
+        }
+        Relationships: []
       }
       clearance_requests: {
         Row: {
@@ -111,34 +135,40 @@ export type Database = {
       }
       clearance_signatures: {
         Row: {
+          authority_sequence_order: number | null
           clearance_request_id: string
           created_at: string | null
           id: string
           notes: string | null
           remarks: string | null
           sequence_order: number
+          signatory_group: string | null
           signatory_id: string
           signed_at: string | null
           status: Database["public"]["Enums"]["clearance_status"] | null
         }
         Insert: {
+          authority_sequence_order?: number | null
           clearance_request_id: string
           created_at?: string | null
           id?: string
           notes?: string | null
           remarks?: string | null
           sequence_order?: number
+          signatory_group?: string | null
           signatory_id: string
           signed_at?: string | null
           status?: Database["public"]["Enums"]["clearance_status"] | null
         }
         Update: {
+          authority_sequence_order?: number | null
           clearance_request_id?: string
           created_at?: string | null
           id?: string
           notes?: string | null
           remarks?: string | null
           sequence_order?: number
+          signatory_group?: string | null
           signatory_id?: string
           signed_at?: string | null
           status?: Database["public"]["Enums"]["clearance_status"] | null
@@ -231,37 +261,103 @@ export type Database = {
       }
       signatories: {
         Row: {
+          authority_sequence_order: number | null
           created_at: string | null
           department: string
+          display_schedule: string | null
           email: string
           id: string
           is_active: boolean | null
           name: string
           position: string
+          request_requirements: Json | null
+          signatory_group: string | null
           updated_at: string | null
           user_id: string | null
         }
         Insert: {
+          authority_sequence_order?: number | null
           created_at?: string | null
           department: string
+          display_schedule?: string | null
           email: string
           id?: string
           is_active?: boolean | null
           name: string
           position: string
+          request_requirements?: Json | null
+          signatory_group?: string | null
           updated_at?: string | null
           user_id?: string | null
         }
         Update: {
+          authority_sequence_order?: number | null
           created_at?: string | null
           department?: string
+          display_schedule?: string | null
           email?: string
           id?: string
           is_active?: boolean | null
           name?: string
           position?: string
+          request_requirements?: Json | null
+          signatory_group?: string | null
           updated_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      student_clearance_step_notes: {
+        Row: {
+          id: string
+          clearance_request_id: string
+          signatory_id: string
+          student_id: string
+          note: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          clearance_request_id: string
+          signatory_id: string
+          student_id: string
+          note?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          clearance_request_id?: string
+          signatory_id?: string
+          student_id?: string
+          note?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      student_signatory_assignments: {
+        Row: {
+          created_at: string | null
+          id: string
+          sequence_order: number
+          signatory_group: string
+          signatory_id: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          sequence_order: number
+          signatory_group?: string
+          signatory_id: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          sequence_order?: number
+          signatory_group?: string
+          signatory_id?: string
+          student_id?: string
         }
         Relationships: []
       }
@@ -299,6 +395,10 @@ export type Database = {
       user_owns_clearance_request: {
         Args: { request_id: string }
         Returns: boolean
+      }
+      auto_approve_stale_clearance_signatures: {
+        Args: Record<PropertyKey, never>
+        Returns: number
       }
     }
     Enums: {

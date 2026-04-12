@@ -51,6 +51,7 @@ import {
   UserPlus,
   CheckCircle,
   XCircle,
+  Calendar,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -95,6 +96,10 @@ export default function Settings() {
   const [requireAllSignatures, setRequireAllSignatures] = useState(true);
   const [allowMultipleClearances, setAllowMultipleClearances] = useState(false);
   const [autoApproveAfterDays, setAutoApproveAfterDays] = useState('');
+
+  /** YYYY-MM-DD for <input type="date" />; empty means not set */
+  const [clearancePeriodStart, setClearancePeriodStart] = useState('');
+  const [clearancePeriodEnd, setClearancePeriodEnd] = useState('');
 
   // User management state
   const [users, setUsers] = useState<UserWithRoles[]>([]);
@@ -301,7 +306,7 @@ export default function Settings() {
 
   const fetchSettings = async () => {
     try {
-      const keys = ['general', 'notifications', 'security'];
+      const keys = ['general', 'notifications', 'security', 'clearance'];
       for (const key of keys) {
         const { data, error } = await supabase
           .from('system_settings')
@@ -325,6 +330,12 @@ export default function Settings() {
           setRequireAllSignatures((v.require_all_signatures as boolean) ?? true);
           setAllowMultipleClearances((v.allow_multiple_clearances as boolean) ?? false);
           setAutoApproveAfterDays(v.auto_approve_after_days != null ? String(v.auto_approve_after_days) : '');
+        }
+        if (key === 'clearance' && v) {
+          const ps = v.period_start;
+          const pe = v.period_end;
+          setClearancePeriodStart(typeof ps === 'string' ? ps.slice(0, 10) : '');
+          setClearancePeriodEnd(typeof pe === 'string' ? pe.slice(0, 10) : '');
         }
       }
     } catch (e) {
@@ -420,6 +431,42 @@ export default function Settings() {
     } catch (e) {
       console.error(e);
       toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveClearancePeriod = async () => {
+    const hasStart = clearancePeriodStart.trim().length > 0;
+    const hasEnd = clearancePeriodEnd.trim().length > 0;
+    if (hasStart !== hasEnd) {
+      toast.error('Set both start and end dates, or clear both to leave the period unset.');
+      return;
+    }
+    if (hasStart && hasEnd && clearancePeriodStart > clearancePeriodEnd) {
+      toast.error('End date must be on or after the start date.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          {
+            key: 'clearance',
+            value_json: {
+              period_start: hasStart ? clearancePeriodStart : null,
+              period_end: hasEnd ? clearancePeriodEnd : null,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      toast.success('Clearance period saved');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save clearance period');
     } finally {
       setSaving(false);
     }
@@ -868,7 +915,8 @@ export default function Settings() {
                   <div className="space-y-0.5">
                     <Label>Require All Approvals</Label>
                     <p className="text-sm text-muted-foreground">
-                      Students must get approval from all required signatories
+                      Stored for policy alignment. Student completion already follows every assigned office on their path;
+                      future rules may use this flag for partial completion.
                     </p>
                   </div>
                   <Switch
@@ -906,7 +954,13 @@ export default function Settings() {
                     className="max-w-[200px] rounded-xl"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Automatically approve pending signatures after this many days. Leave empty to disable.
+                    Pending signature rows older than this many days are set to approved by the database function{' '}
+                    <code className="rounded bg-muted px-1">auto_approve_stale_clearance_signatures</code>. Deploy the Edge
+                    Function <code className="rounded bg-muted px-1">auto-approve-stale-signatures</code>, set secret{' '}
+                    <code className="rounded bg-muted px-1">CRON_SECRET</code>, and schedule a daily (or hourly) HTTP call
+                    with header <code className="rounded bg-muted px-1">x-cron-secret</code> matching that value. Run{' '}
+                    <code className="rounded bg-muted px-1">npm run deploy:function:auto-approve</code> from the project
+                    root. Leave empty to disable.
                   </p>
                 </div>
 
@@ -921,6 +975,60 @@ export default function Settings() {
                       <>
                         <Save className="h-4 w-4 mr-2" />
                         Save Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/50 rounded-xl shadow-sm mt-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Calendar className="h-5 w-5 text-primary" />
+                  </div>
+                  Official clearance period
+                </CardTitle>
+                <CardDescription>
+                  Students see this window on My Clearance, the calendar, and printable reports. Leave both fields empty
+                  if you are not using a fixed period yet.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="clearancePeriodStart">Start date</Label>
+                    <Input
+                      id="clearancePeriodStart"
+                      type="date"
+                      value={clearancePeriodStart}
+                      onChange={(e) => setClearancePeriodStart(e.target.value)}
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clearancePeriodEnd">End date</Label>
+                    <Input
+                      id="clearancePeriodEnd"
+                      type="date"
+                      value={clearancePeriodEnd}
+                      onChange={(e) => setClearancePeriodEnd(e.target.value)}
+                      className="rounded-xl"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={handleSaveClearancePeriod} disabled={saving} className="rounded-xl">
+                    {saving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save clearance period
                       </>
                     )}
                   </Button>

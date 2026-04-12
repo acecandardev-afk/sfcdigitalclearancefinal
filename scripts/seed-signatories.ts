@@ -13,7 +13,9 @@ try {
     const m = line.match(/^([^#=]+)=(.*)$/);
     if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '');
   }
-} catch {}
+} catch {
+  /* optional .env missing */
+}
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -55,62 +57,89 @@ const AUTHORITY_GROUP = [
 async function seed() {
   console.log('SignatoriesTableSeeder: Seeding signatories...\n');
 
-  const signatoryIds: { id: string; signatory_group: string; authority_sequence_order: number | null }[] = [];
+  const signatoryIds: { id: string; signatory_group: string; authority_sequence_order: number | null; email: string }[] = [];
 
-  // Insert Standard Group
-  for (const s of STANDARD_GROUP) {
+  const upsertSignatory = async (s: {
+    name: string;
+    position: string;
+    department: string;
+    email: string;
+    is_active: boolean;
+    signatory_group: 'standard' | 'authority';
+    authority_sequence_order: number | null;
+  }) => {
     const { data, error } = await supabase
       .from('signatories')
-      .insert({
-        name: s.name,
-        position: s.position,
-        department: s.department,
-        email: s.email,
-        is_active: true,
-        signatory_group: 'standard',
-        authority_sequence_order: null,
-      })
+      .upsert(
+        {
+          name: s.name,
+          position: s.position,
+          department: s.department,
+          email: s.email,
+          is_active: s.is_active,
+          signatory_group: s.signatory_group,
+          authority_sequence_order: s.authority_sequence_order,
+        },
+        { onConflict: 'email' }
+      )
       .select('id')
       .single();
 
     if (error) {
-      console.error(`Error inserting ${s.department}:`, error.message);
-    } else if (data) {
-      signatoryIds.push({ id: data.id, signatory_group: 'standard', authority_sequence_order: null });
+      console.error(`Error upserting ${s.department}:`, error.message);
+      return null;
     }
+    return data?.id ?? null;
+  };
+
+  // Insert Standard Group
+  for (const s of STANDARD_GROUP) {
+    const id = await upsertSignatory({
+      name: s.name,
+      position: s.position,
+      department: s.department,
+      email: s.email,
+      is_active: true,
+      signatory_group: 'standard',
+      authority_sequence_order: null,
+    });
+    if (id) signatoryIds.push({ id, signatory_group: 'standard', authority_sequence_order: null, email: s.email });
   }
   console.log(`✓ ${STANDARD_GROUP.length} Standard Group signatories`);
 
   // Insert Authority Group
   for (const s of AUTHORITY_GROUP) {
-    const { data, error } = await supabase
-      .from('signatories')
-      .insert({
-        name: s.name,
-        position: s.position,
-        department: s.department,
-        email: s.email,
-        is_active: true,
-        signatory_group: 'authority',
-        authority_sequence_order: s.order,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error(`Error inserting ${s.department}:`, error.message);
-    } else if (data) {
-      signatoryIds.push({ id: data.id, signatory_group: 'authority', authority_sequence_order: s.order });
-    }
+    const id = await upsertSignatory({
+      name: s.name,
+      position: s.position,
+      department: s.department,
+      email: s.email,
+      is_active: true,
+      signatory_group: 'authority',
+      authority_sequence_order: s.order,
+    });
+    if (id) signatoryIds.push({ id, signatory_group: 'authority', authority_sequence_order: s.order, email: s.email });
   }
   console.log(`✓ ${AUTHORITY_GROUP.length} Authority Group signatories`);
 
   // Set default signatory order (all 15 in sequence: standard 1-10, then authority 1-5)
-  const allIds = signatoryIds.map((s) => s.id);
+  // Deterministic order based on the arrays above.
+  const idByEmail = new Map(signatoryIds.map((s) => [s.email, s.id] as const));
+
+  const orderedIds: string[] = [];
+  for (const s of STANDARD_GROUP) {
+    const id = idByEmail.get(s.email);
+    if (id) orderedIds.push(id);
+  }
+  for (const s of AUTHORITY_GROUP) {
+    const id = idByEmail.get(s.email);
+    if (id) orderedIds.push(id);
+  }
+
   await supabase.from('clearance_default_signatories').delete().gte('sequence_order', 0);
-  for (let i = 0; i < allIds.length; i++) {
+  for (let i = 0; i < orderedIds.length; i++) {
     await supabase.from('clearance_default_signatories').insert({
-      signatory_id: allIds[i],
+      signatory_id: orderedIds[i],
       sequence_order: i + 1,
     });
   }

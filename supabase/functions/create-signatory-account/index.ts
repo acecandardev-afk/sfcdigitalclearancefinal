@@ -1,10 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.2";
+import { getAuthUserFromRequest } from "../_shared/verify_jwt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function bearerJwt(req: Request): string | null {
+  const h = req.headers.get("Authorization");
+  if (!h?.toLowerCase().startsWith("bearer ")) return null;
+  return h.slice(7).trim();
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -14,22 +21,30 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+
     // Create admin client with service role
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Create client with user's JWT to verify they're a superadmin
-    const authHeader = req.headers.get("Authorization")!;
-    const supabaseUser = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } }
-    });
+    const jwt = bearerJwt(req);
+    if (!jwt) {
+      return new Response(JSON.stringify({ error: "Missing or invalid Authorization bearer token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // Verify the requesting user is a superadmin
-    const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    const incomingApikey = req.headers.get("apikey");
+    const { userId, error: authErr } = await getAuthUserFromRequest(
+      supabaseUrl,
+      jwt,
+      anonKey,
+      incomingApikey,
+    );
+    if (authErr || !userId) {
+      return new Response(JSON.stringify({ error: authErr || "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -38,7 +53,7 @@ serve(async (req) => {
     const { data: roleData } = await supabaseAdmin
       .from("user_roles")
       .select("role")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("role", "superadmin")
       .maybeSingle();
 

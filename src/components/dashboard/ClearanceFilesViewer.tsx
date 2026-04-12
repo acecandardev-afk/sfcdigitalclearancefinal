@@ -17,6 +17,7 @@ interface ClearanceFile {
   file_path: string;
   file_size: number | null;
   uploaded_at: string | null;
+  clearance_signature_id?: string | null;
 }
 
 interface ClearanceFilesViewerProps {
@@ -37,6 +38,9 @@ export default function ClearanceFilesViewer({
   const [files, setFiles] = useState<ClearanceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<ClearanceFile | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (open && clearanceRequestId) {
@@ -60,6 +64,29 @@ export default function ClearanceFilesViewer({
       toast.error('Failed to load files');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fileExt = (name: string) => name.split('.').pop()?.toLowerCase() || '';
+  const isImage = (name: string) => ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt(name));
+  const isPdf = (name: string) => fileExt(name) === 'pdf';
+
+  const openPreview = async (file: ClearanceFile) => {
+    setPreviewing(file);
+    setPreviewUrl(null);
+    setPreviewLoading(true);
+    try {
+      const { data, error } = await supabase.storage
+        .from('clearance-files')
+        .createSignedUrl(file.file_path, 60 * 10);
+      if (error) throw error;
+      setPreviewUrl(data.signedUrl);
+    } catch (e) {
+      console.error('Error creating preview url:', e);
+      toast.error('Failed to open preview');
+      setPreviewing(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -167,9 +194,16 @@ export default function ClearanceFilesViewer({
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => openPreview(file)}
+                  >
+                    Preview
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleView(file)}
                   >
-                    View
+                    Open full
                   </Button>
                   <Button
                     variant="ghost"
@@ -188,6 +222,55 @@ export default function ClearanceFilesViewer({
             ))
           )}
         </div>
+
+        <Dialog open={!!previewing} onOpenChange={(o) => (!o ? setPreviewing(null) : undefined)}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle className="font-display">Document preview</DialogTitle>
+              <DialogDescription>
+                {previewing?.file_name}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-[60vh]">
+              {previewLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : !previewUrl || !previewing ? (
+                <div className="text-sm text-muted-foreground">Unable to preview this file.</div>
+              ) : isImage(previewing.file_name) ? (
+                <div className="w-full flex items-center justify-center">
+                  <img
+                    src={previewUrl}
+                    alt={previewing.file_name}
+                    className="max-h-[70vh] w-auto rounded-lg border"
+                  />
+                </div>
+              ) : isPdf(previewing.file_name) ? (
+                <iframe
+                  title={previewing.file_name}
+                  src={previewUrl}
+                  className="w-full h-[70vh] rounded-lg border"
+                />
+              ) : (
+                <div className="flex items-center justify-center py-10">
+                  <div className="text-center">
+                    <FileText className="h-10 w-10 mx-auto text-muted-foreground/60" />
+                    <p className="text-sm text-muted-foreground mt-2">Preview not available for this file type.</p>
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                      <Button variant="outline" onClick={() => previewing && handleView(previewing)}>
+                        Open full
+                      </Button>
+                      <Button onClick={() => previewing && handleDownload(previewing)}>
+                        Download
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );

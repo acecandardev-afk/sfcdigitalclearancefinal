@@ -8,6 +8,7 @@ import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -31,6 +32,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound, ListOrdered, ChevronUp, ChevronDown, UserPlus2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { edgeFunctionInvokeErrorDetail } from '@/lib/edgeFunctionError';
+import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 
 interface Signatory {
   id: string;
@@ -79,7 +82,12 @@ export default function Signatories() {
 
   const signatoryForm = useForm<SignatoryFormData>({
     resolver: zodResolver(signatorySchema),
-    defaultValues: { name: '', position: '', department: '', email: '' },
+    defaultValues: {
+      name: '',
+      position: '',
+      department: '',
+      email: '',
+    },
   });
 
   const accountForm = useForm<AccountFormData>({
@@ -105,13 +113,14 @@ export default function Signatories() {
         .select('id, signatory_id, sequence_order, signatories(id, name, position, department, email, is_active, user_id, created_at)')
         .order('sequence_order', { ascending: true });
       if (error) throw error;
-      const list = (data || [])
-        .filter((row: { signatories: unknown }) => row.signatories)
-        .map((row: { id: string; signatory_id: string; sequence_order: number; signatories: Signatory }) => ({
-          id: row.id,
-          signatory_id: row.signatory_id,
-          sequence_order: row.sequence_order,
-          signatory: row.signatories,
+      const rows = (data as any[] | null | undefined) ?? [];
+      const list = rows
+        .filter((row) => row?.signatories)
+        .map((row) => ({
+          id: String(row.id),
+          signatory_id: String(row.signatory_id),
+          sequence_order: Number(row.sequence_order),
+          signatory: row.signatories as Signatory,
         }));
       setDefaultSignatories(list);
     } catch (error) {
@@ -140,7 +149,12 @@ export default function Signatories() {
 
   const openAddDialog = () => {
     setSelectedSignatory(null);
-    signatoryForm.reset({ name: '', position: '', department: '', email: '' });
+    signatoryForm.reset({
+      name: '',
+      position: '',
+      department: '',
+      email: '',
+    });
     setDialogOpen(true);
   };
 
@@ -173,7 +187,12 @@ export default function Signatories() {
       if (selectedSignatory) {
         const { error } = await supabase
           .from('signatories')
-          .update(data)
+          .update({
+            name: data.name,
+            position: data.position,
+            department: data.department,
+            email: data.email,
+          })
           .eq('id', selectedSignatory.id);
 
         if (error) throw error;
@@ -210,13 +229,11 @@ export default function Signatories() {
     setFormLoading(true);
 
     try {
-      const { data: result, error } = await supabase.functions.invoke('create-signatory-account', {
-        body: {
-          signatory_id: selectedSignatory.id,
-          email: selectedSignatory.email,
-          password: data.password,
-          full_name: selectedSignatory.name,
-        },
+      const { data: result, error } = await invokeAuthenticatedFunction('create-signatory-account', {
+        signatory_id: selectedSignatory.id,
+        email: selectedSignatory.email,
+        password: data.password,
+        full_name: selectedSignatory.name,
       });
 
       if (error) throw error;
@@ -225,9 +242,16 @@ export default function Signatories() {
       toast.success('Account created successfully! The signatory can now login.');
       setAccountDialogOpen(false);
       fetchSignatories();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating account:', error);
-      toast.error(error.message || 'Failed to create account');
+      const detail = await edgeFunctionInvokeErrorDetail(error, 'create-signatory-account');
+      if (detail.trim().toLowerCase() === 'invalid jwt') {
+        toast.error(
+          'Invalid JWT. This usually means your admin session belongs to a different Supabase project than your current VITE_SUPABASE_URL/keys. Sign out, hard refresh, sign in again, and confirm VITE_SUPABASE_URL matches your project-ref (e.g. https://dzhwxlwjaccasitkarhm.supabase.co) and VITE_SUPABASE_ANON_KEY is from the same project.'
+        );
+        return;
+      }
+      toast.error(detail);
     } finally {
       setFormLoading(false);
     }

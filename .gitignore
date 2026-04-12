@@ -16,6 +16,10 @@ dist-ssr
 .env
 .env.*.local
 
+# Supabase CLI local artifacts
+supabase/.temp/
+supabase/.temp/linked-project.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

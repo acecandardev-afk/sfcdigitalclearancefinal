@@ -101,23 +101,50 @@ export default function ApprovedClearances() {
 
       if (error) throw error;
 
+      type ProfileRow = {
+        id: string;
+        full_name: string;
+        student_id: string | null;
+        course: string | null;
+        year_level: string | null;
+      };
+
+      type ApprovedSigRow = {
+        id: string;
+        status: string;
+        remarks: string | null;
+        signed_at: string | null;
+        clearance_request: {
+          id: string;
+          title: string;
+          description: string | null;
+          status: string;
+          created_at: string;
+          student_id: string;
+        } | null;
+      };
+
+      const rows = (data || []) as ApprovedSigRow[];
+
       // Get student IDs and fetch profiles
-      const studentIds = [...new Set((data || []).map((s: any) => s.clearance_request?.student_id).filter(Boolean))];
-      
-      let profilesMap: Record<string, any> = {};
+      const studentIds = [...new Set(
+        rows.map((s) => s.clearance_request?.student_id).filter((id): id is string => Boolean(id))
+      )];
+
+      const profilesMap: Record<string, ProfileRow> = {};
       if (studentIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, full_name, student_id, course, year_level')
           .in('id', studentIds);
-        
-        (profiles || []).forEach((p: any) => {
+
+        (profiles || []).forEach((p: ProfileRow) => {
           profilesMap[p.id] = p;
         });
       }
 
       // Attach profiles to signatures
-      const processedSignatures = (data || []).map((sig: any) => ({
+      const processedSignatures = rows.map((sig: ApprovedSigRow) => ({
         ...sig,
         clearance_request: {
           ...sig.clearance_request,

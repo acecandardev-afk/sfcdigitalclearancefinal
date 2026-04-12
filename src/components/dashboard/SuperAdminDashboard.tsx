@@ -34,6 +34,7 @@ import {
   ChevronRight,
   UserX,
   Calendar,
+  BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, subDays } from 'date-fns';
@@ -50,8 +51,10 @@ interface DashboardStats {
   studentsLacking: number;
   studentsFullySigned: number;
   studentsNotSubmitted: number;
-  studentsFiveMoreNeeded: number;
-  studentsNinetyPercentDone: number;
+  /** Active clearance with at least one office submitted, not yet “almost done” */
+  studentsInProgress: number;
+  /** ≥90% of submitted offices approved, at least one still pending */
+  studentsNearComplete: number;
 }
 
 interface StatusBreakdown {
@@ -99,8 +102,8 @@ export default function SuperAdminDashboard() {
     studentsLacking: 0,
     studentsFullySigned: 0,
     studentsNotSubmitted: 0,
-    studentsFiveMoreNeeded: 0,
-    studentsNinetyPercentDone: 0,
+    studentsInProgress: 0,
+    studentsNearComplete: 0,
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [progressionData, setProgressionData] = useState<DayData[]>([]);
@@ -150,30 +153,38 @@ export default function SuperAdminDashboard() {
         if (s.status === 'approved') v.approved++;
       }
 
-      // Categorize students: not submitted, completed, 5 more needed, 90% done
-      let studentsNotSubmitted = 0;
-      let studentsFiveMoreNeeded = 0;
-      let studentsNinetyPercentDone = 0;
-      const studentToBestProgress = new Map<string, { approved: number; total: number }>();
-
+      const latestActiveByStudent = new Map<string, { id: string; created_at: string }>();
       for (const cr of clearances) {
-        const sigs = sigsByRequest.get(cr.id) || { approved: 0, total: 0 };
-        const existing = studentToBestProgress.get(cr.student_id);
-        if (!existing || sigs.approved > existing.approved) {
-          studentToBestProgress.set(cr.student_id, sigs);
+        if (cr.status !== 'pending' && cr.status !== 'in_progress') continue;
+        const prev = latestActiveByStudent.get(cr.student_id);
+        const t = cr.created_at || '';
+        if (!prev || t > prev.created_at) {
+          latestActiveByStudent.set(cr.student_id, { id: cr.id, created_at: t });
         }
       }
+
+      let studentsNotSubmitted = 0;
+      let studentsNearComplete = 0;
+      let studentsWithActiveSubmissions = 0;
 
       for (const sid of studentIds) {
-        if (studentsWithApproved.has(sid)) continue; // completed
-        const progress = studentToBestProgress.get(sid);
-        if (!progress) {
+        if (studentsWithApproved.has(sid)) continue;
+        const active = latestActiveByStudent.get(sid);
+        const sigs = active ? sigsByRequest.get(active.id) : undefined;
+        const total = sigs?.total ?? 0;
+        const approved = sigs?.approved ?? 0;
+        if (!active || total === 0) {
           studentsNotSubmitted++;
-        } else if (progress.total >= 10) {
-          if (progress.approved === 5) studentsFiveMoreNeeded++;
-          else if (progress.approved === 9) studentsNinetyPercentDone++;
+          continue;
+        }
+        studentsWithActiveSubmissions++;
+        const ratio = approved / total;
+        if (ratio >= 0.9 && approved < total) {
+          studentsNearComplete++;
         }
       }
+
+      const studentsInProgress = Math.max(0, studentsWithActiveSubmissions - studentsNearComplete);
 
       const totalStudents = studentIds.size;
       const studentsFullySigned = studentsWithApproved.size;
@@ -190,8 +201,8 @@ export default function SuperAdminDashboard() {
         studentsLacking,
         studentsFullySigned,
         studentsNotSubmitted,
-        studentsFiveMoreNeeded,
-        studentsNinetyPercentDone,
+        studentsInProgress,
+        studentsNearComplete,
       });
 
       setStatusBreakdown([
@@ -202,10 +213,30 @@ export default function SuperAdminDashboard() {
       ].filter((d) => d.value > 0));
 
       setStudentProgressBreakdown([
-        { name: 'Completed', value: studentsFullySigned, color: '#10b981', description: 'All 10 signatories approved' },
-        { name: 'Not Submitted', value: studentsNotSubmitted, color: '#94a3b8', description: 'No clearance request yet' },
-        { name: '5 More Needed', value: studentsFiveMoreNeeded, color: '#f59e0b', description: '5 of 10 signatories done' },
-        { name: '90% Done', value: studentsNinetyPercentDone, color: '#3b82f6', description: '9 of 10 signatories done' },
+        {
+          name: 'Completed',
+          value: studentsFullySigned,
+          color: '#10b981',
+          description: 'Fully approved clearance request',
+        },
+        {
+          name: 'Not started',
+          value: studentsNotSubmitted,
+          color: '#94a3b8',
+          description: 'No office submissions on an active request yet',
+        },
+        {
+          name: 'In progress',
+          value: studentsInProgress,
+          color: '#f59e0b',
+          description: 'Submitted to offices; still waiting on approvals',
+        },
+        {
+          name: 'Almost done',
+          value: studentsNearComplete,
+          color: '#3b82f6',
+          description: '90%+ of submitted offices approved',
+        },
       ].filter((d) => d.value > 0));
 
       setRecentActivity(
@@ -333,6 +364,7 @@ export default function SuperAdminDashboard() {
 
   const quickActions = [
     { label: 'Create Student Account', icon: UserPlus, path: '/dashboard/students' },
+    { label: 'Reports & export', icon: BarChart3, path: '/dashboard/reports' },
     { label: TERMS.ADD_SIGNATORY, icon: Plus, path: '/dashboard/signatories' },
     { label: TERMS.SET_SIGNATORY_ORDER, icon: ListOrdered, path: '/dashboard/signatories' },
     { label: 'System Settings', icon: Shield, path: '/dashboard/settings' },
@@ -380,49 +412,49 @@ export default function SuperAdminDashboard() {
         <StatCard
           title={TERMS.COMPLETED}
           value={stats.studentsFullySigned}
-          description="Students with all 10 signatories approved"
+          description="Students with a fully approved clearance"
           icon={CheckCircle}
           color="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         />
         <StatCard
-          title="Not Submitted"
+          title="Not started"
           value={stats.studentsNotSubmitted}
-          description="Students who have not submitted any clearance yet"
+          description="No office submissions on their current active request"
           icon={UserX}
           color="bg-slate-500/10 text-slate-600 dark:text-slate-400"
         />
         <StatCard
-          title="5 More Needed"
-          value={stats.studentsFiveMoreNeeded}
-          description="Students with 5 of 10 signatories done (5 remaining)"
+          title="In progress"
+          value={stats.studentsInProgress}
+          description="Waiting on approvals for submitted offices"
           icon={Clock}
           color="bg-amber-500/10 text-amber-600 dark:text-amber-400"
         />
         <StatCard
-          title="90% Done"
-          value={stats.studentsNinetyPercentDone}
-          description="Students with 9 of 10 signatories done (1 remaining)"
+          title="Almost done"
+          value={stats.studentsNearComplete}
+          description="90%+ of submitted offices already approved"
           icon={CheckCircle}
           color="bg-blue-500/10 text-blue-600 dark:text-blue-400"
         />
         <StatCard
           title="Active Signatories"
           value={stats.totalSignatories}
-          description="Personnel authorized to sign student requests (10 total)"
+          description="Personnel authorized to sign student requests"
           icon={Shield}
           color="bg-blue-500/10 text-blue-600 dark:text-blue-400"
         />
         <StatCard
           title={TERMS.PENDING}
           value={stats.pendingClearances}
-          description="Requests awaiting first signatory"
+          description="Clearance requests in pending status"
           icon={Clock}
           color="bg-orange-500/10 text-orange-600 dark:text-orange-400"
         />
         <StatCard
           title={TERMS.COMPLETED_REQUESTS}
           value={stats.approvedClearances}
-          description="Requests signed by all 10 signatories"
+          description="Clearance requests marked approved"
           icon={CheckCircle}
           color="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         />
@@ -438,7 +470,9 @@ export default function SuperAdminDashboard() {
             Student Progress Overview
           </CardTitle>
           <CardDescription>
-            Breakdown of {stats.totalStudents} students by clearance progress. Each student needs 10 signatories to complete. This helps you see who has finished, who has not started, and who is close to completion.
+            Breakdown of {stats.totalStudents} students by real clearance activity: completed, not started, in progress,
+            and almost done (90%+ of offices they submitted to are approved). Totals use live data from requests and
+            signatures.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -518,9 +552,7 @@ export default function SuperAdminDashboard() {
               </div>
               Student Completion Rate
             </CardTitle>
-            <CardDescription>
-              Percentage of students who have completed clearance (all 10 signatories approved)
-            </CardDescription>
+            <CardDescription>Percentage of students who have a fully approved clearance request</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[220px] flex items-center justify-center">
@@ -792,9 +824,9 @@ export default function SuperAdminDashboard() {
                 variant="ghost"
                 size="sm"
                 className="text-primary hover:bg-primary/10 rounded-xl"
-                onClick={() => navigate('/dashboard/clearances')}
+                onClick={() => navigate('/dashboard/reports')}
               >
-                View all
+                Reports
               </Button>
             </div>
           </CardHeader>

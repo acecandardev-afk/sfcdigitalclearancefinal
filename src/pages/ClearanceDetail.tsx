@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
+import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,12 +46,26 @@ interface ClearanceDetail {
   status: 'pending' | 'in_progress' | 'approved' | 'rejected';
   created_at: string;
   updated_at: string;
+  student_id: string;
 }
+
+type RawClearanceSignatureRow = {
+  id: string;
+  signatory_id: string;
+  status: Signature['status'];
+  notes: string | null;
+  remarks: string | null;
+  sequence_order: number;
+  signed_at: string | null;
+  signatories: { name: string; position: string; department: string } | null;
+};
 
 export default function ClearanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isSuperAdmin } = useUserRole();
+  const backPath = isSuperAdmin() ? '/dashboard' : '/dashboard/clearances';
   const [clearance, setClearance] = useState<ClearanceDetail | null>(null);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,10 +127,17 @@ export default function ClearanceDetail() {
 
       if (signaturesError) throw signaturesError;
 
-      const processedSignatures = (signaturesData || []).map((sig: any) => ({
-        ...sig,
-        signatory: sig.signatories,
-      }));
+      const processedSignatures = (signaturesData || []).map((sig: RawClearanceSignatureRow): Signature => {
+        const { signatories, ...rest } = sig;
+        return {
+          ...rest,
+          signatory: {
+            name: signatories?.name ?? '',
+            position: signatories?.position ?? '',
+            department: signatories?.department ?? '',
+          },
+        };
+      });
 
       setSignatures(processedSignatures);
     } catch (error) {
@@ -134,22 +157,23 @@ export default function ClearanceDetail() {
       if (clearanceError) throw clearanceError;
       if (!clearanceData) {
         toast.error('Clearance not found');
-        navigate('/dashboard');
+        navigate(backPath);
         return;
       }
 
-      setClearance(clearanceData);
+      setClearance(clearanceData as ClearanceDetail);
       await fetchSignatures();
     } catch (error) {
       console.error('Error fetching clearance:', error);
-      toast.error('Failed to load clearance details');
+      toast.error(safeActionErrorMessage(error, 'Failed to load clearance details'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Check if clearance can be deleted (no non-pending signatures)
+  // Check if clearance can be deleted (no non-pending signatures); only the student who owns it may delete
   const canDelete = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
+  const isOwner = !!user && !!clearance && clearance.student_id === user.id;
 
   const handleDelete = async () => {
     if (!id) return;
@@ -181,10 +205,10 @@ export default function ClearanceDetail() {
       if (clearanceError) throw clearanceError;
 
       toast.success('Request deleted successfully');
-      navigate('/dashboard');
+      navigate(backPath);
     } catch (error) {
       console.error('Error deleting clearance:', error);
-      toast.error('Failed to delete clearance request');
+      toast.error(safeActionErrorMessage(error, 'Failed to delete clearance request'));
     } finally {
       setDeleting(false);
     }
@@ -234,7 +258,7 @@ export default function ClearanceDetail() {
         <div className="text-center py-12">
           <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
           <h3 className="mt-4 text-lg font-semibold">Request not found</h3>
-          <Button variant="outline" className="mt-4" onClick={() => navigate('/dashboard')}>
+          <Button variant="outline" className="mt-4" onClick={() => navigate(backPath)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Button>
@@ -248,7 +272,7 @@ export default function ClearanceDetail() {
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/dashboard')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(backPath)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
@@ -265,7 +289,7 @@ export default function ClearanceDetail() {
               })}
             </p>
           </div>
-          {canDelete && (
+          {canDelete && isOwner && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" size="sm" disabled={deleting}>

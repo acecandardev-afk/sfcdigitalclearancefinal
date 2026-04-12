@@ -13,6 +13,14 @@ interface NotifyRequest {
   signatory_ids: string[];
 }
 
+interface StudentProfileEmbed {
+  full_name: string | null;
+  email: string | null;
+  student_id: string | null;
+  course: string | null;
+  year_level: string | null;
+}
+
 async function sendEmail(to: string, subject: string, html: string) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -96,7 +104,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Signatories to notify:", signatories);
 
-    const student = clearanceRequest.profiles as any;
+    const student = clearanceRequest.profiles as StudentProfileEmbed | null;
     const emailResults = [];
 
     // Send email to each signatory
@@ -176,9 +184,10 @@ const handler = async (req: Request): Promise<Response> => {
 
         console.log(`Email sent to ${signatory.email}:`, emailResponse);
         emailResults.push({ signatory: signatory.email, success: true, response: emailResponse });
-      } catch (emailError: any) {
+      } catch (emailError: unknown) {
         console.error(`Failed to send email to ${signatory.email}:`, emailError);
-        emailResults.push({ signatory: signatory.email, success: false, error: emailError.message });
+        const errMsg = emailError instanceof Error ? emailError.message : String(emailError);
+        emailResults.push({ signatory: signatory.email, success: false, error: errMsg });
       }
     }
 
@@ -186,10 +195,11 @@ const handler = async (req: Request): Promise<Response> => {
       JSON.stringify({ success: true, results: emailResults }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in notify-signatories function:", error);
+    const message = error instanceof Error ? error.message : String(error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
