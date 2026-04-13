@@ -11,7 +11,6 @@ type AppUser = {
 interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
-  signUp: (..._args: unknown[]) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   resetPassword: (..._args: unknown[]) => Promise<{ error: Error | null }>;
@@ -61,7 +60,6 @@ function AuthBridge({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signOut,
-        signUp: async () => ({ error: new Error('Sign up is disabled. Ask the admin to create your account.') }),
         resetPassword: async () => ({ error: new Error('Password reset is not implemented yet.') }),
       }}
     >

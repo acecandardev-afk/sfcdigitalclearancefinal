@@ -2,19 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
-import { Loader2, Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
+import { Loader2, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
 const BG_IMAGE = '/Screenshot%202026-03-04%20104258.png';
 
 /**
@@ -26,7 +18,6 @@ export default function Index() {
   const { user, loading, signIn, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('student');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -153,8 +144,8 @@ export default function Index() {
                   <h2 className="text-xl font-semibold text-white drop-shadow-sm">
                     E-CLEAR <span className="text-amber-300">SFCG</span>
                   </h2>
-                  <p className="text-base text-white mt-1.5">
-                    Sign in as <span className="text-amber-300 font-semibold">Student</span>
+                  <p className="text-base text-white/90 mt-1.5 text-center max-w-xs">
+                    Use the email and password your administrator issued. Registration is not available on this page.
                   </p>
                 </div>
 
@@ -223,14 +214,16 @@ export default function Index() {
                   <form onSubmit={handleLogin} className="space-y-5">
                     <div className="space-y-2">
                       <label htmlFor="login-email" className="text-sm font-medium text-white">
-                        Email
+                        Email or student ID
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/80" />
                         <Input
                           id="login-email"
-                          type="email"
-                          placeholder="Enter your email"
+                          type="text"
+                          inputMode="text"
+                          autoComplete="username"
+                          placeholder="Email or school-issued ID"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="pl-10 h-11 bg-white/15 border-white/30 text-white placeholder:text-white/60 focus-visible:ring-white/50 text-base"
@@ -283,41 +276,21 @@ export default function Index() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1">
-                        <label htmlFor="role-select" className="sr-only">Role</label>
-                        <Select value={role} onValueChange={setRole}>
-                          <SelectTrigger
-                            id="role-select"
-                            className="bg-white/15 border-white/30 text-white h-11 justify-start gap-2 text-base [&>span]:text-white"
-                          >
-                            <User className="h-4 w-4 text-white/80 shrink-0" />
-                            <SelectValue placeholder="Role" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-gray-900/95 border-white/20 text-base">
-                            <SelectItem value="student" className="text-white focus:bg-white/15">Student</SelectItem>
-                            <SelectItem value="signatory" className="text-white focus:bg-white/15">Signatory</SelectItem>
-                            <SelectItem value="superadmin" className="text-white focus:bg-white/15">Superadmin</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button
-                        type="submit"
-                        disabled={isLoading}
-                        className="bg-white/35 hover:bg-white/45 text-white border-0 h-11 px-6 shrink-0 text-base font-semibold"
-                      >
-                        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                          <>
-                            Sign In
-                            <ArrowRight className="h-4 w-4 ml-1" />
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full bg-white/35 hover:bg-white/45 text-white border-0 h-11 text-base font-semibold"
+                    >
+                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                        <>
+                          Sign In
+                          <ArrowRight className="h-4 w-4 ml-1 inline" />
+                        </>
+                      )}
+                    </Button>
 
-                    <p className="text-center text-base text-white pt-2">
-                      Don&apos;t have an account?{' '}
-                      <span className="text-amber-300 font-semibold">Contact administrator</span>
+                    <p className="text-center text-sm text-white/85 pt-1">
+                      Need an account? Ask your administrator — students and staff cannot self-register here.
                     </p>
                   </form>
                 )}

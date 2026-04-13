@@ -16,9 +16,13 @@ dist-ssr
 .next
 out
 
-# Secrets (never commit)
-.env
-.env.*.local
+# Local blob upload fallback (see /api/blob/upload)
+public/uploads
+
+# Secrets & env files with real credentials (never commit)
+# Keep .env.example as the only tracked env template.
+.env*
+!.env.example
 
 # Supabase CLI local artifacts
 supabase/.temp/

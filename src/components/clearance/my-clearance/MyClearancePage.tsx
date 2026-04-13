@@ -36,6 +36,7 @@ import { logActivity } from '@/hooks/useActivityLog';
 import { DEFAULT_REQUIREMENTS, type UiStepRow, type UiStepStatus } from './myClearanceTypes';
 import { toast } from 'sonner';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { formatApiErrorBody } from '@/lib/userMessages';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -226,14 +227,19 @@ export default function MyClearancePage() {
         fd.append('file', file);
         fd.append('folder', 'clearance-files');
         const up = await fetch('/api/blob/upload', { method: 'POST', body: fd, credentials: 'include' });
-        if (up.ok) {
-          const j = await up.json();
-          uploaded.push({
-            blob_url: j.blob_url,
-            file_name: j.file_name,
-            content_type: j.content_type ?? null,
-          });
+        const raw = await up.json().catch(() => ({}));
+        if (!up.ok) {
+          throw new Error(formatApiErrorBody(raw) || 'File upload failed');
         }
+        const j = raw as { blob_url?: string; file_name?: string; content_type?: string | null };
+        if (!j.blob_url || typeof j.blob_url !== 'string') {
+          throw new Error('Upload did not return a file URL. Check blob storage configuration.');
+        }
+        uploaded.push({
+          blob_url: j.blob_url,
+          file_name: j.file_name ?? file.name,
+          content_type: j.content_type ?? null,
+        });
       }
 
       const hadRequest = !!draftRequestId;
@@ -255,7 +261,7 @@ export default function MyClearancePage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'Submission failed');
+        throw new Error(formatApiErrorBody(data) || 'Submission failed');
       }
 
       if (!hadRequest && data.requestId) {

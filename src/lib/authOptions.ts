@@ -7,8 +7,11 @@ import { prisma } from '@/server/db';
  * Single source of truth for NextAuth. Pass to `getServerSession(authOptions)` (via `getAppSession`)
  * so API routes decode JWTs with the same callbacks and `roles` on `session.user`.
  */
+/** NextAuth expects `NEXTAUTH_SECRET`; `AUTH_SECRET` is accepted as an alias (same purpose: sign/encrypt JWT sessions). */
+const authSecret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: authSecret,
   session: { strategy: 'jwt' },
   providers: [
     CredentialsProvider({
@@ -19,14 +22,33 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         try {
-          const email = credentials?.email?.trim().toLowerCase();
+          const rawLogin = credentials?.email?.trim() ?? '';
           const password = credentials?.password ?? '';
-          if (!email || !password) return null;
+          if (!rawLogin || !password) return null;
 
-          const user = await prisma.user.findUnique({
-            where: { email },
+          const emailKey = rawLogin.toLowerCase();
+
+          let user = await prisma.user.findUnique({
+            where: { email: emailKey },
             include: { roles: true, profile: true },
           });
+
+          // Students often sign in with school-issued ID (profile.studentId), not email.
+          if (!user) {
+            const profile = await prisma.profile.findFirst({
+              where: {
+                studentId: { equals: rawLogin, mode: 'insensitive' },
+              },
+              select: { id: true },
+            });
+            if (profile) {
+              user = await prisma.user.findUnique({
+                where: { id: profile.id },
+                include: { roles: true, profile: true },
+              });
+            }
+          }
+
           if (!user) return null;
 
           const ok = await bcrypt.compare(password, user.passwordHash);
@@ -38,7 +60,7 @@ export const authOptions: NextAuthOptions = {
             name: user.profile?.fullName ?? user.email,
           };
         } catch (e) {
-          console.error('[auth] authorize failed');
+          console.error('[auth] authorize failed', e);
           return null;
         }
       },

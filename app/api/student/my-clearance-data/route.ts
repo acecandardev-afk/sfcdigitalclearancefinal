@@ -125,17 +125,17 @@ export async function GET() {
     const uiStatus = mapDbStatusToUi(sig?.status, hasSig);
     const displayStatus = hasSig ? uiStatus : 'Request';
     const ts = sig?.signedAt ?? sig?.createdAt;
-    const dateStr = ts ? ts.toLocaleDateString() : 'â€”';
+    const dateStr = ts ? ts.toLocaleDateString() : '—';
     rows.push({
       id: s.id,
       signatoryId: s.id,
       sequenceOrder: a.sequenceOrder,
       office: s.department || s.name,
-      officer: `${s.name} â€” ${s.position}`,
+      officer: `${s.name} — ${s.position}`,
       uiStatus: displayStatus,
       date: dateStr,
-      schedule: 'â€”',
-      remarks: sig?.remarks || sig?.notes || 'â€”',
+      schedule: '—',
+      remarks: sig?.remarks || sig?.notes || '—',
       requirements: parseRequirements(null),
       signatureId: sig?.id ?? null,
       signatoryGroup: group,

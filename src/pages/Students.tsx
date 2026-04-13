@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { formatApiErrorBody } from '@/lib/userMessages';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { PROGRAM_COURSES, YEAR_LEVEL_OPTIONS } from '@/constants/academicOptions';
 
 interface StudentProfile {
   id: string;
@@ -58,26 +60,37 @@ const createSchema = z.object({
   course: z.string().trim().optional(),
 });
 
-const editSchema = z.object({
-  full_name: z.string().trim().min(1, 'Full name is required'),
-  student_id: z.string().trim().optional(),
-  year_level: z.string().trim().optional(),
-  course: z.string().trim().optional(),
-});
+const editSchema = z
+  .object({
+    full_name: z.string().trim().min(1, 'Full name is required'),
+    student_id: z.string().trim().optional(),
+    year_level: z.string().trim().optional(),
+    course: z.string().trim().optional(),
+    new_password: z.string().optional(),
+    confirm_password: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const np = (data.new_password ?? '').trim();
+    const cp = (data.confirm_password ?? '').trim();
+    if (!np && !cp) return;
+    if (np.length < 6) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Password must be at least 6 characters',
+        path: ['new_password'],
+      });
+    }
+    if (np !== cp) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Passwords must match',
+        path: ['confirm_password'],
+      });
+    }
+  });
 
 type CreateFormData = z.infer<typeof createSchema>;
 type EditFormData = z.infer<typeof editSchema>;
-
-const YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
-const COURSES = [
-  'College of Computer Studies',
-  'College of Business Administration',
-  'College of Education',
-  'College of Engineering',
-  'College of Arts and Sciences',
-  'College of Nursing',
-  'College of Accountancy',
-];
 
 export default function Students() {
   const navigate = useNavigate();
@@ -115,6 +128,8 @@ export default function Students() {
       student_id: '',
       year_level: '',
       course: '',
+      new_password: '',
+      confirm_password: '',
     },
   });
 
@@ -133,8 +148,8 @@ export default function Students() {
       const res = await fetch(`/api/students?archived=${showArchived ? '1' : '0'}`, {
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to load students');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       const list = ((json.students || []) as any[]).map((s) => ({
         id: String(s.id),
         full_name: String(s.full_name ?? ''),
@@ -154,7 +169,7 @@ export default function Students() {
       }
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error('Failed to load students');
+      toast.error(error instanceof Error ? error.message : 'Failed to load students');
     } finally {
       setLoading(false);
     }
@@ -179,6 +194,8 @@ export default function Students() {
       student_id: student.student_id || '',
       year_level: student.year_level || '',
       course: student.course || '',
+      new_password: '',
+      confirm_password: '',
     });
     setEditDialogOpen(true);
   };
@@ -218,19 +235,23 @@ export default function Students() {
     if (!editingStudent) return;
     setFormLoading(true);
     try {
+      const np = (data.new_password ?? '').trim();
+      const body: Record<string, unknown> = {
+        full_name: data.full_name,
+        student_id: data.student_id || null,
+        year_level: data.year_level || null,
+        course: data.course || null,
+      };
+      if (np) body.new_password = np;
       const res = await fetch(`/api/students/${editingStudent.id}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: data.full_name,
-          student_id: data.student_id || null,
-          year_level: data.year_level || null,
-          course: data.course || null,
-        }),
+        body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error('Failed to update student');
-      toast.success('Student updated successfully');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
+      toast.success(np ? 'Student updated and password changed' : 'Student updated successfully');
       setEditDialogOpen(false);
       setEditingStudent(null);
       fetchStudents();
@@ -422,10 +443,10 @@ export default function Students() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Departments</SelectItem>
-              {COURSES.map((c) => (
+              {PROGRAM_COURSES.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
-              {uniqueDepartments.filter((d) => !COURSES.includes(d)).map((d) => (
+              {uniqueDepartments.filter((d) => !(PROGRAM_COURSES as readonly string[]).includes(d)).map((d) => (
                 <SelectItem key={d} value={d}>{d}</SelectItem>
               ))}
             </SelectContent>
@@ -436,10 +457,12 @@ export default function Students() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Year Levels</SelectItem>
-              {YEAR_LEVELS.map((y) => (
+              {YEAR_LEVEL_OPTIONS.map((y) => (
                 <SelectItem key={y} value={y}>{y}</SelectItem>
               ))}
-              {uniqueYearLevels.filter((yl) => !YEAR_LEVELS.includes(yl)).map((yl) => (
+              {uniqueYearLevels
+                .filter((yl) => !(YEAR_LEVEL_OPTIONS as readonly string[]).includes(yl))
+                .map((yl) => (
                 <SelectItem key={yl} value={yl}>{yl}</SelectItem>
               ))}
             </SelectContent>
@@ -646,7 +669,7 @@ export default function Students() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {YEAR_LEVELS.map((y) => (
+                        {YEAR_LEVEL_OPTIONS.map((y) => (
                           <SelectItem key={y} value={y}>{y}</SelectItem>
                         ))}
                       </SelectContent>
@@ -668,7 +691,7 @@ export default function Students() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {COURSES.map((c) => (
+                        {PROGRAM_COURSES.map((c) => (
                           <SelectItem key={c} value={c}>{c}</SelectItem>
                         ))}
                       </SelectContent>
@@ -703,7 +726,7 @@ export default function Students() {
           <DialogHeader>
             <DialogTitle>Edit student</DialogTitle>
             <DialogDescription>
-              Update student information. Email cannot be changed here.
+              Update student information. Email cannot be changed here. Optionally set a new sign-in password.
             </DialogDescription>
           </DialogHeader>
           <Form {...editForm}>
@@ -747,7 +770,7 @@ export default function Students() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {YEAR_LEVELS.map((y) => (
+                        {YEAR_LEVEL_OPTIONS.map((y) => (
                           <SelectItem key={y} value={y}>{y}</SelectItem>
                         ))}
                       </SelectContent>
@@ -769,11 +792,49 @@ export default function Students() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {COURSES.map((c) => (
+                        {PROGRAM_COURSES.map((c) => (
                           <SelectItem key={c} value={c}>{c}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="new_password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New password</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Leave blank to keep current password"
+                        {...field}
+                        className="rounded-xl"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="confirm_password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm new password</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Repeat new password"
+                        {...field}
+                        className="rounded-xl"
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

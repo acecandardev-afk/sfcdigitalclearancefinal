@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,6 +7,8 @@ import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +31,41 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound, ListOrdered, ChevronUp, ChevronDown, UserPlus2 } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  closestCenter,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Loader2,
+  Users,
+  Search,
+  UserPlus,
+  KeyRound,
+  ListOrdered,
+  ChevronUp,
+  ChevronDown,
+  UserPlus2,
+  CheckCircle2,
+  ArrowDown,
+  GripVertical,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { formatApiErrorBody } from '@/lib/userMessages';
 
@@ -75,6 +111,117 @@ const accountSchema = z.object({
 type SignatoryFormData = z.infer<typeof signatorySchema>;
 type AccountFormData = z.infer<typeof accountSchema>;
 
+type DefaultSignatoryOrderItem = {
+  id: string;
+  signatory_id: string;
+  sequence_order: number;
+  signatory: Signatory;
+};
+
+function SortableDefaultOrderRow({
+  row,
+  step,
+  disabled,
+  highlight,
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}: {
+  row: DefaultSignatoryOrderItem;
+  step: number;
+  disabled: boolean;
+  highlight: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      id={`default-order-row-${row.id}`}
+      className={cn(
+        'flex items-center justify-between gap-2 p-4 rounded-xl border border-border/50 hover:bg-muted/40 hover:border-border/80 transition-all duration-300',
+        isDragging && 'opacity-60 shadow-md z-10',
+        highlight &&
+          'ring-2 ring-primary/70 shadow-lg bg-primary/[0.06] scale-[1.01] motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-500'
+      )}
+    >
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <button
+          type="button"
+          className={cn(
+            'shrink-0 touch-none rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            disabled && 'pointer-events-none opacity-50'
+          )}
+          disabled={disabled}
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-5 w-5" />
+        </button>
+        <span className="flex items-center justify-center h-7 w-7 shrink-0 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <p className="font-medium truncate">{row.signatory.name}</p>
+          <p className="text-sm text-muted-foreground truncate">
+            {row.signatory.position} • {row.signatory.department}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={disabled || isFirst}
+          onClick={onMoveUp}
+          aria-label="Move up one step"
+        >
+          <ChevronUp className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={disabled || isLast}
+          onClick={onMoveDown}
+          aria-label="Move down one step"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="text-destructive hover:text-destructive"
+          disabled={disabled}
+          onClick={onRemove}
+          aria-label="Remove from order"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Signatories() {
   const navigate = useNavigate();
   const { isSuperAdmin, loading: roleLoading } = useUserRole();
@@ -87,9 +234,21 @@ export default function Signatories() {
   const [selectedSignatory, setSelectedSignatory] = useState<Signatory | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   // Default signatories for student clearances (admin-assigned order)
-  const [defaultSignatories, setDefaultSignatories] = useState<{ id: string; signatory_id: string; sequence_order: number; signatory: Signatory }[]>([]);
+  const [defaultSignatories, setDefaultSignatories] = useState<DefaultSignatoryOrderItem[]>([]);
   const [defaultOrderLoading, setDefaultOrderLoading] = useState(false);
   const [addDefaultDialogOpen, setAddDefaultDialogOpen] = useState(false);
+  const [addOrderSearch, setAddOrderSearch] = useState('');
+  const [insertAsFirst, setInsertAsFirst] = useState(false);
+  const [highlightDefaultRowId, setHighlightDefaultRowId] = useState<string | null>(null);
+
+  const reorderSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const signatoryForm = useForm<SignatoryFormData>({
     resolver: zodResolver(signatorySchema),
@@ -122,7 +281,7 @@ export default function Signatories() {
       const res = await fetch('/api/default-signatories', { credentials: 'include' });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(formatApiErrorBody(json));
-      setDefaultSignatories((json.defaultSignatories || []) as any);
+      setDefaultSignatories((json.defaultSignatories || []) as DefaultSignatoryOrderItem[]);
     } catch (error) {
       console.error('Error fetching default signatories:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to load default signatory order');
@@ -294,20 +453,61 @@ export default function Signatories() {
     }
   };
 
+  const stepBySignatoryId = useMemo(() => {
+    const m = new Map<string, number>();
+    defaultSignatories.forEach((d, i) => m.set(d.signatory_id, i + 1));
+    return m;
+  }, [defaultSignatories]);
+
+  const pickerSignatories = useMemo(() => {
+    const q = addOrderSearch.trim().toLowerCase();
+    const list = [...signatories].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    if (!q) return list;
+    return list.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.department.toLowerCase().includes(q) ||
+        s.position.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q)
+    );
+  }, [signatories, addOrderSearch]);
+
+  const canAddAnyActive = useMemo(
+    () => signatories.some((s) => s.is_active && !stepBySignatoryId.has(s.id)),
+    [signatories, stepBySignatoryId]
+  );
+
+  useEffect(() => {
+    if (!highlightDefaultRowId) return;
+    const t = window.setTimeout(() => setHighlightDefaultRowId(null), 3200);
+    const el = document.getElementById(`default-order-row-${highlightDefaultRowId}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return () => window.clearTimeout(t);
+  }, [highlightDefaultRowId]);
+
   const addToDefaultOrder = async (signatory: Signatory) => {
+    if (!signatory.is_active || stepBySignatoryId.has(signatory.id)) return;
     setDefaultOrderLoading(true);
     try {
+      const body: { signatory_id: string; insert_at?: number } = { signatory_id: signatory.id };
+      if (insertAsFirst) body.insert_at = 1;
       const res = await fetch('/api/default-signatories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signatory_id: signatory.id }),
+        body: JSON.stringify(body),
       });
-      const json = await res.json().catch(() => ({}));
+      const json = (await res.json().catch(() => ({}))) as { id?: string; sequence_order?: number; error?: unknown };
       if (!res.ok) throw new Error(formatApiErrorBody(json));
-      toast.success(`${signatory.name} added to default request order`);
-      setAddDefaultDialogOpen(false);
-      fetchDefaultSignatories();
+      toast.success(
+        insertAsFirst
+          ? `${signatory.name} added as step 1 (others shifted down)`
+          : `${signatory.name} added as step ${json.sequence_order ?? '?'}`,
+        { duration: 2500 }
+      );
+      if (json.id) setHighlightDefaultRowId(json.id);
+      if (insertAsFirst) setInsertAsFirst(false);
+      await fetchDefaultSignatories();
     } catch (error) {
       console.error('Error adding to default order:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to add signatory to order');
@@ -335,41 +535,45 @@ export default function Signatories() {
     }
   };
 
-  const moveInDefaultOrder = async (index: number, direction: 'up' | 'down') => {
-    const list = [...defaultSignatories];
-    const swap = direction === 'up' ? index - 1 : index + 1;
-    if (swap < 0 || swap >= list.length) return;
-    [list[index].sequence_order, list[swap].sequence_order] = [list[swap].sequence_order, list[index].sequence_order];
+  const commitDefaultOrderReorder = async (ids: string[]) => {
     setDefaultOrderLoading(true);
     try {
-      const r1 = await fetch(`/api/default-signatories/${list[index].id}`, {
-        method: 'PATCH',
+      const res = await fetch('/api/default-signatories', {
+        method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sequence_order: list[index].sequence_order }),
+        body: JSON.stringify({ ids }),
       });
-      const j1 = await r1.json().catch(() => ({}));
-      if (!r1.ok) throw new Error(formatApiErrorBody(j1));
-      const r2 = await fetch(`/api/default-signatories/${list[swap].id}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sequence_order: list[swap].sequence_order }),
-      });
-      const j2 = await r2.json().catch(() => ({}));
-      if (!r2.ok) throw new Error(formatApiErrorBody(j2));
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
+      setDefaultSignatories((json.defaultSignatories || []) as DefaultSignatoryOrderItem[]);
       toast.success('Order updated');
-      fetchDefaultSignatories();
     } catch (error) {
       console.error('Error reordering:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to update order');
+      await fetchDefaultSignatories();
     } finally {
       setDefaultOrderLoading(false);
     }
   };
 
-  const defaultOrderSignatoryIds = new Set(defaultSignatories.map((d) => d.signatory_id));
-  const availableToAdd = signatories.filter((s) => s.is_active && !defaultOrderSignatoryIds.has(s.id));
+  const moveInDefaultOrder = (index: number, direction: 'up' | 'down') => {
+    const swap = direction === 'up' ? index - 1 : index + 1;
+    if (swap < 0 || swap >= defaultSignatories.length) return;
+    const newIds = arrayMove(defaultSignatories, index, swap).map((d) => d.id);
+    void commitDefaultOrderReorder(newIds);
+  };
+
+  const onDefaultOrderDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = defaultSignatories.findIndex((d) => d.id === active.id);
+    const newIndex = defaultSignatories.findIndex((d) => d.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const newIds = arrayMove(defaultSignatories, oldIndex, newIndex).map((d) => d.id);
+    void commitDefaultOrderReorder(newIds);
+  };
+
 
   const filteredSignatories = signatories.filter(
     (s) =>
@@ -413,7 +617,8 @@ export default function Signatories() {
               Default signatories for student requests
             </CardTitle>
             <CardDescription className="text-muted-foreground/90">
-              Students cannot choose signatories. Set the signatories and order for every new request.
+              Students cannot choose signatories. Set the signatories and order for every new request. Drag the grip
+              handle to reorder steps, or use the arrows to move one step.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -423,61 +628,44 @@ export default function Signatories() {
                 <p className="text-sm text-muted-foreground mt-1">Add signatories below; they will sign in the order you set.</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {defaultSignatories.map((d, index) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between p-4 rounded-xl border border-border/50 hover:bg-muted/40 hover:border-border/80 transition-all duration-200"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-sm font-bold">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium">{d.signatory.name}</p>
-                        <p className="text-sm text-muted-foreground">{d.signatory.position} • {d.signatory.department}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={defaultOrderLoading || index === 0}
-                        onClick={() => moveInDefaultOrder(index, 'up')}
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={defaultOrderLoading || index === defaultSignatories.length - 1}
-                        onClick={() => moveInDefaultOrder(index, 'down')}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
+              <DndContext
+                sensors={reorderSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDefaultOrderDragEnd}
+              >
+                <SortableContext
+                  items={defaultSignatories.map((d) => d.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {defaultSignatories.map((d, index) => (
+                      <SortableDefaultOrderRow
+                        key={d.id}
+                        row={d}
+                        step={index + 1}
                         disabled={defaultOrderLoading}
-                        onClick={() => removeFromDefaultOrder(d.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                        highlight={highlightDefaultRowId === d.id}
+                        isFirst={index === 0}
+                        isLast={index === defaultSignatories.length - 1}
+                        onMoveUp={() => moveInDefaultOrder(index, 'up')}
+                        onMoveDown={() => moveInDefaultOrder(index, 'down')}
+                        onRemove={() => removeFromDefaultOrder(d.id)}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             )}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={defaultOrderLoading || availableToAdd.length === 0}
-              onClick={() => setAddDefaultDialogOpen(true)}
+              disabled={defaultOrderLoading || !canAddAnyActive}
+              onClick={() => {
+                setAddOrderSearch('');
+                setInsertAsFirst(false);
+                setAddDefaultDialogOpen(true);
+              }}
               className="rounded-xl"
             >
               <UserPlus2 className="h-4 w-4 mr-2" />
@@ -744,34 +932,112 @@ export default function Signatories() {
       </Dialog>
 
       {/* Add to default order dialog */}
-      <Dialog open={addDefaultDialogOpen} onOpenChange={setAddDefaultDialogOpen}>
-        <DialogContent className="rounded-2xl sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add signatory to request order</DialogTitle>
-            <DialogDescription>
-              Choose a signatory to add to the default signing sequence. Only active signatories not already in the list are shown.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-            {availableToAdd.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">No signatories available to add. Add new signatories or activate existing ones.</p>
-            ) : (
-              availableToAdd.map((sig) => (
-                <div
-                  key={sig.id}
-                  className="flex items-center justify-between p-3 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 cursor-pointer transition-all duration-200"
-                  onClick={() => addToDefaultOrder(sig)}
-                >
-                  <div>
-                    <p className="font-medium">{sig.name}</p>
-                    <p className="text-sm text-muted-foreground">{sig.position} • {sig.department}</p>
-                  </div>
-                  <Button type="button" variant="ghost" size="sm" disabled={defaultOrderLoading}>
-                    Add
-                  </Button>
+      <Dialog
+        open={addDefaultDialogOpen}
+        onOpenChange={(open) => {
+          setAddDefaultDialogOpen(open);
+          if (!open) setAddOrderSearch('');
+        }}
+      >
+        <DialogContent className="rounded-2xl sm:max-w-lg gap-0 p-0 overflow-hidden">
+          <div className="p-6 pb-4 border-b border-border/60 bg-muted/20">
+            <DialogHeader>
+              <DialogTitle>Add signatory to request order</DialogTitle>
+              <DialogDescription>
+                All signatories are listed. <strong>Active</strong> people not yet in the sequence can be added. Each add
+                goes to the <strong>next step</strong> (1, then 2, then 3…). Use &quot;Insert as step 1&quot; to place the
+                next add at the front and shift others down.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3 mt-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, office, email…"
+                  value={addOrderSearch}
+                  onChange={(e) => setAddOrderSearch(e.target.value)}
+                  className="pl-9 rounded-xl"
+                />
+              </div>
+              <label className="flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 cursor-pointer hover:bg-muted/40 transition-colors">
+                <Checkbox
+                  checked={insertAsFirst}
+                  onCheckedChange={(c) => setInsertAsFirst(!!c)}
+                  id="insert-first"
+                  className="mt-0.5"
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="insert-first" className="text-sm font-medium cursor-pointer">
+                    Insert as step 1 (shift current sequence down)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Next click adds at the top; leave off to append after the last step.
+                  </p>
                 </div>
-              ))
+              </label>
+            </div>
+          </div>
+          <div className="max-h-[min(52vh,420px)] overflow-y-auto p-3 space-y-1.5">
+            {pickerSignatories.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No signatories match your search.</p>
+            ) : (
+              pickerSignatories.map((sig, idx) => {
+                const step = stepBySignatoryId.get(sig.id);
+                const inOrder = step != null;
+                const canClick = sig.is_active && !inOrder;
+                return (
+                  <button
+                    key={sig.id}
+                    type="button"
+                    disabled={!canClick || defaultOrderLoading}
+                    style={{ animationDelay: `${Math.min(idx, 20) * 25}ms` }}
+                    className={cn(
+                      'w-full text-left flex items-center justify-between gap-3 p-3 rounded-xl border transition-all duration-200 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2',
+                      canClick &&
+                        'border-border/60 bg-card hover:bg-primary/[0.07] hover:border-primary/40 cursor-pointer active:scale-[0.99] shadow-sm',
+                      !canClick && 'border-transparent bg-muted/30 opacity-90 cursor-not-allowed',
+                      inOrder && 'ring-1 ring-muted'
+                    )}
+                    onClick={() => canClick && addToDefaultOrder(sig)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium truncate">{sig.name}</p>
+                        {!sig.is_active && (
+                          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                            Inactive
+                          </span>
+                        )}
+                        {inOrder && (
+                          <span className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Step {step}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {sig.position} • {sig.department}
+                      </p>
+                    </div>
+                    {canClick ? (
+                      <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                        <ArrowDown className="h-3.5 w-3.5" />
+                        {insertAsFirst ? 'Add as #1' : 'Add next'}
+                      </span>
+                    ) : inOrder ? (
+                      <span className="text-xs text-muted-foreground shrink-0">In sequence</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground shrink-0">Activate first</span>
+                    )}
+                  </button>
+                );
+              })
             )}
+          </div>
+          <div className="p-4 border-t border-border/60 flex justify-end bg-muted/10">
+            <Button type="button" variant="secondary" className="rounded-xl" onClick={() => setAddDefaultDialogOpen(false)}>
+              Done
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

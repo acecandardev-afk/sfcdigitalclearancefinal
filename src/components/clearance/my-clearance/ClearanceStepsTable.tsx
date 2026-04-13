@@ -372,8 +372,15 @@ export function ClearanceStepsTable({
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm request</AlertDialogTitle>
             <AlertDialogDescription>
-              Submit a clearance request to <strong>{confirmRow?.office}</strong>? You will upload required items in the
-              next step.
+              Submit a clearance request to{' '}
+              <strong>
+                {confirmRow?.officer && confirmRow.officer !== '—'
+                  ? confirmRow.officer
+                  : confirmRow?.office && confirmRow.office !== 'N/A'
+                    ? confirmRow.office
+                    : 'the assigned officer'}
+              </strong>
+              ? You will upload required items in the next step.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

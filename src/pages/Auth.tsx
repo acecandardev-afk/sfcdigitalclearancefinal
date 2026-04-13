@@ -138,8 +138,8 @@ export default function Auth() {
                   <h2 className="text-xl font-semibold text-white">
                     E-CLEAR <span className="text-amber-400">SFCG</span>
                   </h2>
-                  <p className="text-sm text-white/80 mt-1">
-                    Sign in as <span className="text-amber-400 font-medium">Student</span>
+                  <p className="text-sm text-white/80 mt-1 text-center max-w-[260px] mx-auto">
+                    Sign in with the email and password your administrator created for you.
                   </p>
                 </div>
 
@@ -162,14 +162,16 @@ export default function Auth() {
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="space-y-2">
                       <label htmlFor="login-userid" className="text-sm font-medium text-white/90">
-                        User Id
+                        Email or student ID
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
                         <Input
                           id="login-userid"
-                          type="email"
-                          placeholder="Enter your ID number"
+                          type="text"
+                          inputMode="text"
+                          autoComplete="username"
+                          placeholder="Email or school-issued ID"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-white/40"

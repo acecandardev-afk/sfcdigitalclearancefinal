@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
+import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 
@@ -13,6 +14,7 @@ const PatchSchema = z.object({
   student_id: z.string().max(100).nullable().optional(),
   year_level: z.string().max(50).nullable().optional(),
   course: z.string().max(200).nullable().optional(),
+  new_password: z.string().min(6).max(72).optional(),
 });
 
 export async function PATCH(req: Request, ctx: { params: { id: string } }) {
@@ -27,15 +29,49 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const updated = await prisma.profile.update({
-    where: { id: ctx.params.id },
-    data: {
-      ...(parsed.data.full_name != null ? { fullName: parsed.data.full_name } : {}),
-      ...(parsed.data.student_id !== undefined ? { studentId: parsed.data.student_id } : {}),
-      ...(parsed.data.year_level !== undefined ? { yearLevel: parsed.data.year_level } : {}),
-      ...(parsed.data.course !== undefined ? { course: parsed.data.course } : {}),
-    },
+  const id = ctx.params.id;
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { roles: true, profile: true },
   });
+  if (!user?.profile) {
+    return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+  }
+  const isStudent = user.roles.some((r) => r.role === 'student');
+  if (!isStudent) {
+    return NextResponse.json({ error: 'Not a student account' }, { status: 403 });
+  }
+
+  const p = parsed.data;
+  const hasProfileUpdate =
+    p.full_name != null ||
+    p.student_id !== undefined ||
+    p.year_level !== undefined ||
+    p.course !== undefined;
+  const hasPassword = Boolean(p.new_password);
+  if (!hasProfileUpdate && !hasPassword) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (hasProfileUpdate) {
+      await tx.profile.update({
+        where: { id },
+        data: {
+          ...(p.full_name != null ? { fullName: p.full_name } : {}),
+          ...(p.student_id !== undefined ? { studentId: p.student_id } : {}),
+          ...(p.year_level !== undefined ? { yearLevel: p.year_level } : {}),
+          ...(p.course !== undefined ? { course: p.course } : {}),
+        },
+      });
+    }
+    if (hasPassword && p.new_password) {
+      const passwordHash = await bcrypt.hash(p.new_password, 10);
+      await tx.user.update({ where: { id }, data: { passwordHash } });
+    }
+  });
+
+  const updated = await prisma.profile.findUniqueOrThrow({ where: { id } });
 
   return NextResponse.json({
     student: {

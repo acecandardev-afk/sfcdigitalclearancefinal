@@ -6,11 +6,19 @@ import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Separator } from '@/components/ui/separator';
 import { User, KeyRound, Loader2, Save, Shield, Mail } from 'lucide-react';
 import { toast } from 'sonner';
+import { programCourseSelectOptions, yearLevelSelectOptions } from '@/constants/academicOptions';
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -221,9 +229,25 @@ export default function AccountSettings() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Year level</FormLabel>
-                        <FormControl>
-                          <Input placeholder="e.g. 1st Year" {...field} disabled={loadingProfile} />
-                        </FormControl>
+                        <Select
+                          disabled={loadingProfile}
+                          value={field.value ? field.value : '__none__'}
+                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select year level" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">Not set</SelectItem>
+                            {yearLevelSelectOptions(field.value).map((y) => (
+                              <SelectItem key={y} value={y}>
+                                {y}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -235,9 +259,25 @@ export default function AccountSettings() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Course</FormLabel>
-                        <FormControl>
-                          <Input placeholder="e.g. BSIT" {...field} disabled={loadingProfile} />
-                        </FormControl>
+                        <Select
+                          disabled={loadingProfile}
+                          value={field.value ? field.value : '__none__'}
+                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select program" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className="max-h-[280px]">
+                            <SelectItem value="__none__">Not set</SelectItem>
+                            {programCourseSelectOptions(field.value).map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}

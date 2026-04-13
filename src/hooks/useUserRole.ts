@@ -14,7 +14,10 @@ export function useUserRole() {
       return;
     }
     const list = ((user as any)?.roles ?? []) as AppRole[];
-    setRoles(list);
+    setRoles((prev) => {
+      if (prev.length === list.length && prev.every((r, i) => r === list[i])) return prev;
+      return list;
+    });
     setLoading(false);
   }, [authLoading, user]);
 

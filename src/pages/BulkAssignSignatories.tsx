@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -13,8 +13,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Loader2, Users, UserCheck } from 'lucide-react';
+import { Info, Loader2, Users, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatApiErrorBody } from '@/lib/userMessages';
+import { PROGRAM_COURSES, YEAR_LEVEL_OPTIONS } from '@/constants/academicOptions';
 
 interface StudentProfile {
   id: string;
@@ -34,31 +36,10 @@ interface Signatory {
   authority_sequence_order: number | null;
 }
 
-const YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
-const COURSES = [
-  'BSIS',
-  'BSCS',
-  'BSIT',
-  'BSBA',
-  'BSEd',
-  'BSN',
-  'BSHM',
-  'BSTM',
-  'AB Comm',
-  'BS Psych',
-  'BS Crim',
-  'College of Computer Studies',
-  'College of Business Administration',
-  'College of Education',
-  'College of Engineering',
-  'College of Arts and Sciences',
-  'College of Nursing',
-  'College of Accountancy',
-];
-
 export default function BulkAssignSignatories() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useUserRole();
+  const { roles, loading: roleLoading } = useUserRole();
+  const isSuperAdminUser = roles.includes('superadmin');
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [signatories, setSignatories] = useState<Signatory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,43 +49,36 @@ export default function BulkAssignSignatories() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!roleLoading && !isSuperAdmin()) {
+    if (!roleLoading && !isSuperAdminUser) {
       navigate('/dashboard');
     }
-  }, [roleLoading, isSuperAdmin, navigate]);
+  }, [roleLoading, isSuperAdminUser, navigate]);
 
-  useEffect(() => {
-    if (isSuperAdmin() && !roleLoading) {
-      fetchStudents();
-      fetchSignatories();
-    }
-  }, [roleLoading, isSuperAdmin, courseFilter, yearLevelFilter]);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (courseFilter !== 'all') params.set('course', courseFilter);
       if (yearLevelFilter !== 'all') params.set('year_level', yearLevelFilter);
       const qs = params.toString();
       const res = await fetch(`/api/students${qs ? `?${qs}` : ''}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load students');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       setStudents((json.students as StudentProfile[]) || []);
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error('Failed to load students');
+      toast.error(error instanceof Error ? error.message : 'Failed to load students');
     } finally {
       setLoading(false);
     }
-  };
+  }, [courseFilter, yearLevelFilter]);
 
-  const fetchSignatories = async () => {
+  const fetchSignatories = useCallback(async () => {
     try {
       const res = await fetch('/api/signatories?active_only=true&order=bulk_assign', {
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to load signatories');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       const raw = (json.signatories || []) as any[];
       const mapped: Signatory[] = raw.map((s) => ({
         id: String(s.id),
@@ -118,9 +92,15 @@ export default function BulkAssignSignatories() {
       setSignatories(mapped);
     } catch (error) {
       console.error('Error fetching signatories:', error);
-      toast.error('Failed to load signatories');
+      toast.error(error instanceof Error ? error.message : 'Failed to load signatories');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (roleLoading || !isSuperAdminUser) return;
+    setLoading(true);
+    void Promise.all([fetchStudents(), fetchSignatories()]);
+  }, [roleLoading, isSuperAdminUser, fetchStudents, fetchSignatories]);
 
   const handleBulkAssign = async () => {
     if (selectedIds.size === 0) {
@@ -128,7 +108,7 @@ export default function BulkAssignSignatories() {
       return;
     }
     if (signatories.length === 0) {
-      toast.error('No signatories available. Run seed:signatories first.');
+      toast.error('No active signatories loaded. Add signatories in Settings → Signatories, then refresh.');
       return;
     }
 
@@ -142,15 +122,20 @@ export default function BulkAssignSignatories() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(typeof json.error === 'string' ? json.error : 'Failed to assign signatories');
+        throw new Error(formatApiErrorBody(json));
       }
       const perStudent = Number(json.signatoriesPerStudent ?? signatories.length);
       const count = Number(json.studentsAssigned ?? selectedIds.size);
-      toast.success(`Assigned ${perStudent} signatories to ${count} student(s)`);
+      const skipped = Number(json.skippedNonStudents ?? 0);
+      let msg = `Assigned ${perStudent} signatory step(s) to ${count} student(s).`;
+      if (skipped > 0) {
+        msg += ` (${skipped} selected row(s) skipped — not student accounts.)`;
+      }
+      toast.success(msg);
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Error bulk assigning:', error);
-      toast.error('Failed to assign signatories');
+      toast.error(error instanceof Error ? error.message : 'Failed to assign signatories');
     } finally {
       setAssigning(false);
     }
@@ -192,10 +177,47 @@ export default function BulkAssignSignatories() {
               <UserCheck className="h-8 w-8 text-primary" />
               Bulk Assign Signatories
             </h1>
-            <p className="text-muted-foreground mt-1">
-              Filter students by course and year level, then assign signatories in one action.
+            <p className="text-muted-foreground mt-1 max-w-3xl">
+              Set which offices sign each student&apos;s clearance when they file a request. Use this page to apply the
+              same signatory lineup to many students at once (for example, everyone in a course or year level).
             </p>
           </div>
+
+          <Card className="border border-primary/20 bg-primary/5 rounded-xl shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Info className="h-5 w-5 text-primary shrink-0" />
+                How this page works
+              </CardTitle>
+              <CardDescription className="text-foreground/80">
+                Quick guide for administrators
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground leading-relaxed">
+              <p>
+                <span className="font-medium text-foreground">What it does.</span> Each student can have a{' '}
+                <span className="font-medium text-foreground">personal signatory list</span> (order of offices that must
+                sign their clearance). Bulk assign writes that list for everyone you select, using{' '}
+                <span className="font-medium text-foreground">all active signatories</span> in the system—standard offices
+                first, then authority offices in sequence—so new clearance requests follow the correct path.
+              </p>
+              <ol className="list-decimal list-inside space-y-1.5 pl-0.5">
+                <li>Optional: use <span className="font-medium text-foreground">Course</span> and{' '}
+                  <span className="font-medium text-foreground">Year level</span> to narrow the student list.</li>
+                <li>
+                  Select one or more students with the checkboxes (use the header checkbox to select everyone listed).
+                </li>
+                <li>
+                  Click <span className="font-medium text-foreground">Assign to … student(s)</span>. Previous personal
+                  assignments for those students are replaced with the current full signatory set.</li>
+              </ol>
+              <p className="text-xs border-t border-border/60 pt-3 mt-1">
+                Signatories are managed under <span className="font-medium text-foreground">Signatories</span> in the
+                dashboard. Only students with the student role can receive assignments; the success message will say if
+                any selected rows were skipped.
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Filters */}
           <Card className="border border-border/50 rounded-xl shadow-sm">
@@ -213,7 +235,7 @@ export default function BulkAssignSignatories() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Courses</SelectItem>
-                      {COURSES.map((c) => (
+                      {PROGRAM_COURSES.map((c) => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
@@ -227,7 +249,7 @@ export default function BulkAssignSignatories() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Year Levels</SelectItem>
-                      {YEAR_LEVELS.map((y) => (
+                      {YEAR_LEVEL_OPTIONS.map((y) => (
                         <SelectItem key={y} value={y}>{y}</SelectItem>
                       ))}
                     </SelectContent>
