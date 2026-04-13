@@ -57,6 +57,8 @@ const handler = NextAuth({
   },
   pages: {
     signIn: '/auth',
+    // Avoid default /api/auth/error HTML; SPA has no route for /api/* (would show NotFound if misrouted).
+    error: '/auth',
   },
 });
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
+import { friendlySignInError } from '@/lib/userMessages';
 import { toast } from 'sonner';
 import { Loader2, Mail, Lock, Eye, EyeOff, User, ArrowRight } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -16,6 +17,7 @@ const BG_IMAGE = '/Screenshot%202026-03-04%20104258.png';
  */
 export default function Auth() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, loading, signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +31,13 @@ export default function Auth() {
       navigate('/dashboard', { replace: true });
     }
   }, [user, loading, navigate]);
+
+  useEffect(() => {
+    const err = searchParams.get('error');
+    if (!err) return;
+    toast.error(friendlySignInError(err));
+    navigate({ pathname: '/auth', search: '' }, { replace: true });
+  }, [searchParams, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
