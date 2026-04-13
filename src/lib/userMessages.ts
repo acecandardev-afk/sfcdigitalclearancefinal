@@ -5,6 +5,41 @@
 const GENERIC = 'Something went wrong. Please try again.';
 const NETWORK = 'Network error. Check your connection and try again.';
 
+/** Turn API JSON error payloads into a single line for toasts (validation, Prisma, custom). */
+export function formatApiErrorBody(json: unknown): string {
+  if (!json || typeof json !== 'object') return 'Request failed.';
+  const o = json as Record<string, unknown>;
+
+  const fromZodFlatten = (flat: unknown): string | null => {
+    if (!flat || typeof flat !== 'object') return null;
+    const f = flat as { fieldErrors?: Record<string, string[] | unknown>; formErrors?: string[] };
+    const parts: string[] = [];
+    if (Array.isArray(f.formErrors) && f.formErrors.length) parts.push(...f.formErrors);
+    if (f.fieldErrors && typeof f.fieldErrors === 'object') {
+      for (const [key, val] of Object.entries(f.fieldErrors)) {
+        if (Array.isArray(val)) parts.push(`${key}: ${val.join(', ')}`);
+      }
+    }
+    return parts.length ? parts.join(' ') : null;
+  };
+
+  if (typeof o.error === 'string') {
+    const bits: string[] = [o.error];
+    if (typeof o.detail === 'string') bits.push(o.detail);
+    const issues = fromZodFlatten(o.issues);
+    if (issues) bits.push(issues);
+    return bits.join(' — ');
+  }
+
+  if (o.error && typeof o.error === 'object') {
+    const z = fromZodFlatten(o.error);
+    if (z) return z;
+  }
+
+  if (typeof o.detail === 'string') return o.detail;
+  return 'Request failed.';
+}
+
 /** Map NextAuth `signIn` error codes/strings to safe messages. */
 export function friendlySignInError(error: string | undefined): string {
   if (!error) return 'Unable to sign in. Please try again.';

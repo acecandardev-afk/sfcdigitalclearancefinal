@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -41,7 +41,7 @@ const PatchSchema = z.object({
 });
 
 export async function PATCH(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

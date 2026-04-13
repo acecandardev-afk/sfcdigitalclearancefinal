@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound, ListOrdered, ChevronUp, ChevronDown, UserPlus2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatApiErrorBody } from '@/lib/userMessages';
 
 interface Signatory {
   id: string;
@@ -119,24 +120,24 @@ export default function Signatories() {
   const fetchDefaultSignatories = async () => {
     try {
       const res = await fetch('/api/default-signatories', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load default signatory order');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       setDefaultSignatories((json.defaultSignatories || []) as any);
     } catch (error) {
       console.error('Error fetching default signatories:', error);
-      toast.error('Failed to load default signatory order');
+      toast.error(error instanceof Error ? error.message : 'Failed to load default signatory order');
     }
   };
 
   const fetchSignatories = async () => {
     try {
       const res = await fetch('/api/signatories', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load signatories');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       setSignatories(((json.signatories || []) as any[]).map(apiSignatoryToUi));
     } catch (error) {
       console.error('Error fetching signatories:', error);
-      toast.error('Failed to load signatories');
+      toast.error(error instanceof Error ? error.message : 'Failed to load signatories');
     } finally {
       setLoading(false);
     }
@@ -191,7 +192,8 @@ export default function Signatories() {
             email: data.email,
           }),
         });
-        if (!res.ok) throw new Error('Failed to update signatory');
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiErrorBody(json));
         toast.success('Signatory updated successfully');
       } else {
         const res = await fetch('/api/signatories', {
@@ -207,7 +209,8 @@ export default function Signatories() {
             signatory_group: 'standard',
           }),
         });
-        if (!res.ok) throw new Error('Failed to add signatory');
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiErrorBody(json));
         toast.success('Signatory added successfully');
       }
 
@@ -215,7 +218,7 @@ export default function Signatories() {
       fetchSignatories();
     } catch (error) {
       console.error('Error saving signatory:', error);
-      toast.error('Failed to save signatory');
+      toast.error(error instanceof Error ? error.message : 'Failed to save signatory');
     } finally {
       setFormLoading(false);
     }
@@ -241,14 +244,14 @@ export default function Signatories() {
       });
 
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create account');
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
 
       toast.success('Account created successfully! The signatory can now login.');
       setAccountDialogOpen(false);
       fetchSignatories();
     } catch (error: unknown) {
       console.error('Error creating account:', error);
-      toast.error('Failed to create account');
+      toast.error(error instanceof Error ? error.message : 'Failed to create account');
     } finally {
       setFormLoading(false);
     }
@@ -262,13 +265,14 @@ export default function Signatories() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to remove signatory');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       toast.success('Signatory removed successfully');
       setDeleteDialogOpen(false);
       fetchSignatories();
     } catch (error) {
       console.error('Error deleting signatory:', error);
-      toast.error('Failed to remove signatory');
+      toast.error(error instanceof Error ? error.message : 'Failed to remove signatory');
     }
   };
 
@@ -280,12 +284,13 @@ export default function Signatories() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !signatory.is_active }),
       });
-      if (!res.ok) throw new Error('Failed to update status');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       toast.success(`Signatory ${signatory.is_active ? 'deactivated' : 'activated'}`);
       fetchSignatories();
     } catch (error) {
       console.error('Error toggling status:', error);
-      toast.error('Failed to update status');
+      toast.error(error instanceof Error ? error.message : 'Failed to update status');
     }
   };
 
@@ -298,13 +303,14 @@ export default function Signatories() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signatory_id: signatory.id }),
       });
-      if (!res.ok) throw new Error('Failed to add signatory to order');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       toast.success(`${signatory.name} added to default request order`);
       setAddDefaultDialogOpen(false);
       fetchDefaultSignatories();
     } catch (error) {
       console.error('Error adding to default order:', error);
-      toast.error('Failed to add signatory to order');
+      toast.error(error instanceof Error ? error.message : 'Failed to add signatory to order');
     } finally {
       setDefaultOrderLoading(false);
     }
@@ -317,12 +323,13 @@ export default function Signatories() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to remove');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
       toast.success('Removed from default order');
       fetchDefaultSignatories();
     } catch (error) {
       console.error('Error removing from default order:', error);
-      toast.error('Failed to remove');
+      toast.error(error instanceof Error ? error.message : 'Failed to remove');
     } finally {
       setDefaultOrderLoading(false);
     }
@@ -341,19 +348,21 @@ export default function Signatories() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sequence_order: list[index].sequence_order }),
       });
-      if (!r1.ok) throw new Error('Failed to update order');
+      const j1 = await r1.json().catch(() => ({}));
+      if (!r1.ok) throw new Error(formatApiErrorBody(j1));
       const r2 = await fetch(`/api/default-signatories/${list[swap].id}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sequence_order: list[swap].sequence_order }),
       });
-      if (!r2.ok) throw new Error('Failed to update order');
+      const j2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) throw new Error(formatApiErrorBody(j2));
       toast.success('Order updated');
       fetchDefaultSignatories();
     } catch (error) {
       console.error('Error reordering:', error);
-      toast.error('Failed to update order');
+      toast.error(error instanceof Error ? error.message : 'Failed to update order');
     } finally {
       setDefaultOrderLoading(false);
     }

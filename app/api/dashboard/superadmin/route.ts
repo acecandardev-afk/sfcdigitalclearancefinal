@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 
 function requireSuperadmin(session: any) {
@@ -12,7 +12,7 @@ function ymd(d: Date): string {
 }
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

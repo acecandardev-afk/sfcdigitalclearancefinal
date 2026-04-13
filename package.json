@@ -10,6 +10,7 @@
     "dev:vite": "vite",
     "build:vite": "vite build",
     "seed": "npx tsx scripts/seed-test-users.ts",
+    "seed:admin": "npx prisma db seed",
     "seed:signatories": "npx tsx scripts/seed-signatories.ts",
     "activate:signatory": "npx tsx scripts/activate-signatory-user.ts",
     "build:dev": "vite build --mode development",
@@ -93,5 +94,8 @@
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19",
     "prisma": "^6.4.1"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
   }
 }

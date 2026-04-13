@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 
 function requireSignatory(session: any) {
@@ -8,7 +8,7 @@ function requireSignatory(session: any) {
 }
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSignatory(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

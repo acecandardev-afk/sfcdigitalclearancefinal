@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
   if (!session?.user || !roles.includes('student')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

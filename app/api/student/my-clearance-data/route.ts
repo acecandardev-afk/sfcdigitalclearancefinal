@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 import { clearanceSignatureActivityDate } from '@/server/prismaDateCompat';
 import { parseRequirements } from '@/components/clearance/my-clearance/myClearanceTypes';
@@ -15,7 +15,7 @@ function mapDbStatusToUi(
 }
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
   if (!session?.user || !roles.includes('student')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -125,17 +125,17 @@ export async function GET() {
     const uiStatus = mapDbStatusToUi(sig?.status, hasSig);
     const displayStatus = hasSig ? uiStatus : 'Request';
     const ts = sig?.signedAt ?? sig?.createdAt;
-    const dateStr = ts ? ts.toLocaleDateString() : '—';
+    const dateStr = ts ? ts.toLocaleDateString() : 'â€”';
     rows.push({
       id: s.id,
       signatoryId: s.id,
       sequenceOrder: a.sequenceOrder,
       office: s.department || s.name,
-      officer: `${s.name} — ${s.position}`,
+      officer: `${s.name} â€” ${s.position}`,
       uiStatus: displayStatus,
       date: dateStr,
-      schedule: '—',
-      remarks: sig?.remarks || sig?.notes || '—',
+      schedule: 'â€”',
+      remarks: sig?.remarks || sig?.notes || 'â€”',
       requirements: parseRequirements(null),
       signatureId: sig?.id ?? null,
       signatoryGroup: group,

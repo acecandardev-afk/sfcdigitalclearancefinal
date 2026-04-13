@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 
@@ -11,7 +11,7 @@ function requireSuperadmin(session: any) {
 const KEYS = ['general', 'notifications', 'security', 'clearance'] as const;
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -31,7 +31,7 @@ const PutSchema = z.object({
 });
 
 export async function PUT(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { modelCreatedAtOrNull } from '@/server/prismaDateCompat';
@@ -10,7 +10,7 @@ function requireSuperadmin(session: any) {
 }
 
 export async function GET() {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -44,7 +44,7 @@ const CreateSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

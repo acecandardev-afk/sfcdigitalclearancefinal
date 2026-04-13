@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 
 function requireSuperadmin(session: any) {
@@ -8,7 +8,7 @@ function requireSuperadmin(session: any) {
 }
 
 export async function GET(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

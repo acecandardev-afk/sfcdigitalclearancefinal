@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 
@@ -13,7 +13,7 @@ const BodySchema = z.object({
 });
 
 export async function PUT(req: Request, ctx: { params: { id: string } }) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

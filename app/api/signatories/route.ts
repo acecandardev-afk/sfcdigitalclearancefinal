@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 
@@ -9,9 +10,12 @@ function requireSuperadmin(session: any) {
 }
 
 export async function GET(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json(
+      { error: 'Unauthorized', detail: 'Superadmin session required. Sign out and sign in again if this persists.' },
+      { status: 401 }
+    );
   }
 
   const url = new URL(req.url);
@@ -39,29 +43,55 @@ const CreateSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!requireSuperadmin(session)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json(
+      { error: 'Unauthorized', detail: 'Superadmin session required. Sign out and sign in again if this persists.' },
+      { status: 401 }
+    );
   }
 
   const json = await req.json().catch(() => null);
   const parsed = CreateSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Validation failed', issues: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
   const s = parsed.data;
-  const signatory = await prisma.signatory.create({
-    data: {
-      name: s.name,
-      position: s.position,
-      department: s.department,
-      email: s.email.toLowerCase(),
-      isActive: s.is_active ?? true,
-      signatoryGroup: (s.signatory_group ?? 'standard') as any,
-      authoritySequenceOrder: s.authority_sequence_order ?? null,
-    },
-  });
-
-  return NextResponse.json({ signatory }, { status: 201 });
+  try {
+    const signatory = await prisma.signatory.create({
+      data: {
+        name: s.name,
+        position: s.position,
+        department: s.department,
+        email: s.email.toLowerCase(),
+        isActive: s.is_active ?? true,
+        signatoryGroup: (s.signatory_group ?? 'standard') as any,
+        authoritySequenceOrder: s.authority_sequence_order ?? null,
+      },
+    });
+    return NextResponse.json({ signatory }, { status: 201 });
+  } catch (e: unknown) {
+    console.error('[POST /api/signatories]', e);
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === 'P2002') {
+        const target = Array.isArray(e.meta?.target) ? (e.meta?.target as string[]).join(', ') : 'unique field';
+        return NextResponse.json(
+          {
+            error: 'Duplicate value',
+            detail: `A signatory or linked account already uses this ${target}. Change the email or remove the other record.`,
+          },
+          { status: 409 }
+        );
+      }
+    }
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    return NextResponse.json(
+      { error: 'Could not create signatory', detail: message },
+      { status: 500 }
+    );
+  }
 }

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { put } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

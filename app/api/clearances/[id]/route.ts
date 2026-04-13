@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
 
 function roles(session: any): string[] {
@@ -12,7 +12,7 @@ async function getSignatoryIdForUser(userId: string): Promise<string | null> {
 }
 
 export async function GET(_req: Request, ctx: { params: { id: string } }) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -114,7 +114,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
 }
 
 export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
-  const session = await getServerSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
