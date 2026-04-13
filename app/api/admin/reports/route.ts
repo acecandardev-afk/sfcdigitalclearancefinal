@@ -99,7 +99,9 @@ export async function GET(req: Request) {
         clearance_request_id: cr.id,
         status: s.status,
         signed_at: s.signedAt?.toISOString() ?? null,
-        created_at: s.createdAt.toISOString(),
+        // createdAt exists in schema/DB; some generated clients omit it from types until `prisma generate` matches migrations.
+        created_at:
+          (s as { createdAt?: Date | null }).createdAt?.toISOString() ?? s.signedAt?.toISOString() ?? null,
         sequence_order: s.sequenceOrder,
         notes: s.notes,
         remarks: s.remarks,
