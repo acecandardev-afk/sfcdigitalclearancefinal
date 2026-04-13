@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/server/db';
 
 const handler = NextAuth({
+  secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: 'jwt' },
   providers: [
     CredentialsProvider({
@@ -13,24 +14,29 @@ const handler = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const email = credentials?.email?.trim().toLowerCase();
-        const password = credentials?.password ?? '';
-        if (!email || !password) return null;
+        try {
+          const email = credentials?.email?.trim().toLowerCase();
+          const password = credentials?.password ?? '';
+          if (!email || !password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-          include: { roles: true, profile: true },
-        });
-        if (!user) return null;
+          const user = await prisma.user.findUnique({
+            where: { email },
+            include: { roles: true, profile: true },
+          });
+          if (!user) return null;
 
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+          const ok = await bcrypt.compare(password, user.passwordHash);
+          if (!ok) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.profile?.fullName ?? user.email,
-        };
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.profile?.fullName ?? user.email,
+          };
+        } catch (e) {
+          console.error('[auth] authorize failed');
+          return null;
+        }
       },
     }),
   ],

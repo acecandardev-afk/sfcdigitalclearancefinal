@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { SessionProvider, signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from 'next-auth/react';
+import { friendlySignInError } from '@/lib/userMessages';
 
 type AppUser = {
   id?: string;
@@ -34,15 +35,19 @@ function AuthBridge({ children }: { children: ReactNode }) {
     : null;
 
   const signIn = async (email: string, password: string) => {
-    const res = await nextAuthSignIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
-    if (!res || res.error) {
-      return { error: new Error(res?.error || 'Sign in failed') };
+    try {
+      const res = await nextAuthSignIn('credentials', {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+      });
+      if (!res || res.error) {
+        return { error: new Error(friendlySignInError(res?.error)) };
+      }
+      return { error: null };
+    } catch {
+      return { error: new Error('Unable to sign in. Please try again.') };
     }
-    return { error: null };
   };
 
   const signOut = async () => {

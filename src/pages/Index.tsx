@@ -50,10 +50,7 @@ export default function Index() {
     setIsLoading(true);
     const { error } = await signIn(trimmedEmail, trimmedPassword);
     if (error) {
-      const msg = error.message?.toLowerCase().includes('invalid') || error.message?.toLowerCase().includes('credentials')
-        ? 'Invalid email or password. Use the email your admin created for you.'
-        : error.message;
-      toast.error(msg);
+      toast.error(error.message);
     } else {
       toast.success('Welcome back!');
       navigate('/dashboard');

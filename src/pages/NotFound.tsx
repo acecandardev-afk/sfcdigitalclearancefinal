@@ -1,21 +1,20 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { Link } from 'react-router-dom';
 
+/**
+ * Shown when no React Router path matches. Keep copy generic (no paths or internals in production UI).
+ */
 const NotFound = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
-
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
+    <div className="flex min-h-screen items-center justify-center bg-muted p-6">
+      <div className="text-center max-w-md">
+        <h1 className="mb-2 text-4xl font-bold text-[#1a3c5e] dark:text-blue-400">404</h1>
+        <p className="mb-6 text-lg text-muted-foreground">We could not find that page.</p>
+        <Link
+          to="/"
+          className="inline-flex text-primary underline underline-offset-4 hover:text-primary/90 font-medium"
+        >
+          Return to home
+        </Link>
       </div>
     </div>
   );
