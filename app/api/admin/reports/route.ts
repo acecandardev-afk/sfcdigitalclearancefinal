@@ -79,7 +79,8 @@ export async function GET(req: Request) {
 
     const sigs = await prisma.clearanceSignature.findMany({
       where: sigWhere,
-      orderBy: { createdAt: 'desc' },
+      // Use id ordering for stable sort (avoids Prisma/client mismatches when createdAt migration not applied).
+      orderBy: { id: 'desc' },
       take: 2500,
       include: {
         signatory: true,
