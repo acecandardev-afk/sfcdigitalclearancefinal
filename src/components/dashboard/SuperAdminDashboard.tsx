@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -117,201 +116,21 @@ export default function SuperAdminDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const [
-        studentRolesRes,
-        signatoriesRes,
-        clearancesRes,
-        approvedClearancesRes,
-        signaturesRes,
-      ] = await Promise.all([
-        supabase.from('user_roles').select('user_id').eq('role', 'student'),
-        supabase.from('signatories').select('id', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('clearance_requests').select('id, status, student_id, created_at, updated_at'),
-        supabase.from('clearance_requests').select('student_id').eq('status', 'approved'),
-        supabase.from('clearance_signatures').select('clearance_request_id, status'),
-      ]);
+      const res = await fetch('/api/dashboard/superadmin', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load dashboard data');
+      const json = await res.json();
 
-      const clearances = clearancesRes.data || [];
-      const signatures = signaturesRes.data || [];
-      const pendingCount = clearances.filter((c) => c.status === 'pending').length;
-      const approvedCount = clearances.filter((c) => c.status === 'approved').length;
-      const rejectedCount = clearances.filter((c) => c.status === 'rejected').length;
-      const inProgressCount = clearances.filter((c) => c.status === 'in_progress').length;
-
-      const studentIds = new Set<string>(
-        (studentRolesRes.data || []).map((r) => String((r as any).user_id))
-      );
-      const studentsWithApproved = new Set(
-        (approvedClearancesRes.data || []).map((r) => r.student_id)
-      );
-
-      // Build signature counts per clearance
-      const sigsByRequest = new Map<string, { approved: number; total: number }>();
-      for (const s of signatures) {
-        const key = s.clearance_request_id;
-        if (!sigsByRequest.has(key)) sigsByRequest.set(key, { approved: 0, total: 0 });
-        const v = sigsByRequest.get(key)!;
-        v.total++;
-        if (s.status === 'approved') v.approved++;
-      }
-
-      const latestActiveByStudent = new Map<string, { id: string; created_at: string }>();
-      for (const cr of clearances) {
-        if (cr.status !== 'pending' && cr.status !== 'in_progress') continue;
-        const prev = latestActiveByStudent.get(cr.student_id);
-        const t = cr.created_at || '';
-        if (!prev || t > prev.created_at) {
-          latestActiveByStudent.set(cr.student_id, { id: cr.id, created_at: t });
-        }
-      }
-
-      let studentsNotSubmitted = 0;
-      let studentsNearComplete = 0;
-      let studentsWithActiveSubmissions = 0;
-
-      for (const sid of studentIds) {
-        if (studentsWithApproved.has(sid)) continue;
-        const active = latestActiveByStudent.get(sid);
-        const sigs = active ? sigsByRequest.get(active.id) : undefined;
-        const total = sigs?.total ?? 0;
-        const approved = sigs?.approved ?? 0;
-        if (!active || total === 0) {
-          studentsNotSubmitted++;
-          continue;
-        }
-        studentsWithActiveSubmissions++;
-        const ratio = approved / total;
-        if (ratio >= 0.9 && approved < total) {
-          studentsNearComplete++;
-        }
-      }
-
-      const studentsInProgress = Math.max(0, studentsWithActiveSubmissions - studentsNearComplete);
-
-      const totalStudents = studentIds.size;
-      const studentsFullySigned = studentsWithApproved.size;
-      const studentsLacking = Math.max(0, totalStudents - studentsFullySigned);
-
-      setStats({
-        totalStudents,
-        totalSignatories: signatoriesRes.count || 0,
-        totalClearances: clearances.length,
-        pendingClearances: pendingCount,
-        approvedClearances: approvedCount,
-        rejectedClearances: rejectedCount,
-        inProgressClearances: inProgressCount,
-        studentsLacking,
-        studentsFullySigned,
-        studentsNotSubmitted,
-        studentsInProgress,
-        studentsNearComplete,
-      });
-
-      setStatusBreakdown([
-        { name: TERMS.APPROVED, value: approvedCount, color: '#10b981' },
-        { name: TERMS.IN_PROGRESS, value: inProgressCount, color: '#3b82f6' },
-        { name: TERMS.PENDING, value: pendingCount, color: '#f59e0b' },
-        { name: TERMS.REJECTED, value: rejectedCount, color: '#ef4444' },
-      ].filter((d) => d.value > 0));
-
-      setStudentProgressBreakdown([
-        {
-          name: 'Completed',
-          value: studentsFullySigned,
-          color: '#10b981',
-          description: 'Fully approved clearance request',
-        },
-        {
-          name: 'Not started',
-          value: studentsNotSubmitted,
-          color: '#94a3b8',
-          description: 'No office submissions on an active request yet',
-        },
-        {
-          name: 'In progress',
-          value: studentsInProgress,
-          color: '#f59e0b',
-          description: 'Submitted to offices; still waiting on approvals',
-        },
-        {
-          name: 'Almost done',
-          value: studentsNearComplete,
-          color: '#3b82f6',
-          description: '90%+ of submitted offices approved',
-        },
-      ].filter((d) => d.value > 0));
-
-      setRecentActivity(
-        (await fetchRecentActivity()).map((c) => ({
-          id: c.id,
-          type: 'clearance' as const,
-          title: c.title,
-          description: `by ${(c.profiles as unknown as { full_name: string })?.full_name || 'Unknown'}`,
-          created_at: c.created_at,
-          status: c.status,
-        }))
-      );
-
-      setProgressionData(buildProgressionData(clearances));
+      setStats(json.stats);
+      setStatusBreakdown(json.statusBreakdown || []);
+      setStudentProgressBreakdown(json.studentProgressBreakdown || []);
+      setRecentActivity(json.recentActivity || []);
+      setProgressionData(json.progressionData || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
-  };
-
-  const fetchRecentActivity = async () => {
-    const { data } = await supabase
-      .from('clearance_requests')
-      .select(
-        `id, title, status, created_at, profiles:student_id(full_name)`
-      )
-      .order('created_at', { ascending: false })
-      .limit(5);
-    return data || [];
-  };
-
-  const buildProgressionData = (
-    clearances: { created_at: string | null; updated_at: string | null; status: string }[]
-  ): DayData[] => {
-    const days = 30;
-    const result: DayData[] = [];
-    const today = new Date();
-
-    for (let i = days - 1; i >= 0; i--) {
-      const d = subDays(today, i);
-      const dateStr = format(d, 'yyyy-MM-dd');
-
-      const dayClearances = clearances.filter((c) => {
-        const created = c.created_at ? new Date(c.created_at) : null;
-        return created && format(created, 'yyyy-MM-dd') === dateStr;
-      });
-
-      const submissions = dayClearances.length;
-
-      const approvals = clearances.filter((c) => {
-        if (c.status !== 'approved') return false;
-        const updated = c.updated_at ? new Date(c.updated_at) : null;
-        return updated && format(updated, 'yyyy-MM-dd') === dateStr;
-      }).length;
-
-      const pending = dayClearances.filter((c) => c.status === 'pending').length;
-      const in_progress = dayClearances.filter((c) => c.status === 'in_progress').length;
-      const approved = dayClearances.filter((c) => c.status === 'approved').length;
-      const rejected = dayClearances.filter((c) => c.status === 'rejected').length;
-
-      result.push({
-        date: dateStr,
-        submissions,
-        approvals,
-        pending,
-        in_progress,
-        approved,
-        rejected,
-      });
-    }
-    return result;
   };
 
   const completionRate = stats.totalStudents > 0
