@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -77,92 +76,19 @@ export default function ClearanceDetail() {
     }
   }, [user, id]);
 
-  const fetchSignatures = useCallback(async () => {
-    if (!id) return;
-    try {
-      const { data: signaturesData, error: signaturesError } = await supabase
-        .from('clearance_signatures')
-        .select(`
-          id,
-          signatory_id,
-          status,
-          notes,
-          remarks,
-          sequence_order,
-          signed_at,
-          signatories (
-            id,
-            name,
-            position,
-            department
-          )
-        `)
-        .eq('clearance_request_id', id)
-        .order('sequence_order', { ascending: true });
-
-      if (signaturesError) throw signaturesError;
-
-      const processedSignatures = (signaturesData || []).map((sig: RawClearanceSignatureRow): Signature => {
-        const { signatories, ...rest } = sig;
-        return {
-          ...rest,
-          signatory: {
-            name: signatories?.name ?? '',
-            position: signatories?.position ?? '',
-            department: signatories?.department ?? '',
-          },
-        };
-      });
-
-      setSignatures(processedSignatures);
-    } catch (error) {
-      console.error('Error fetching signatures:', error);
-    }
-  }, [id]);
-
-  // Real-time subscription for live signature updates
-  useEffect(() => {
-    if (!id) return;
-
-    const channel = supabase
-      .channel(`clearance-detail-${id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'clearance_signatures',
-          filter: `clearance_request_id=eq.${id}`,
-        },
-        () => {
-          fetchSignatures();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [id, fetchSignatures]);
-
   const fetchClearanceDetail = async () => {
     try {
-      // Fetch clearance request
-      const { data: clearanceData, error: clearanceError } = await supabase
-        .from('clearance_requests')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (clearanceError) throw clearanceError;
-      if (!clearanceData) {
+      const res = await fetch(`/api/clearances/${id}`, { credentials: 'include' });
+      if (res.status === 404) {
         toast.error('Clearance not found');
         navigate(backPath);
         return;
       }
+      if (!res.ok) throw new Error('Failed to load clearance details');
+      const json = await res.json();
 
-      setClearance(clearanceData as ClearanceDetail);
-      await fetchSignatures();
+      setClearance(json.clearance as ClearanceDetail);
+      setSignatures((json.signatures || []) as Signature[]);
     } catch (error) {
       console.error('Error fetching clearance:', error);
       toast.error(safeActionErrorMessage(error, 'Failed to load clearance details'));
@@ -180,29 +106,11 @@ export default function ClearanceDetail() {
     
     setDeleting(true);
     try {
-      // Delete signatures first (due to foreign key)
-      const { error: sigError } = await supabase
-        .from('clearance_signatures')
-        .delete()
-        .eq('clearance_request_id', id);
-      
-      if (sigError) throw sigError;
-
-      // Delete files
-      const { error: filesError } = await supabase
-        .from('clearance_files')
-        .delete()
-        .eq('clearance_request_id', id);
-      
-      if (filesError) throw filesError;
-
-      // Delete the clearance request
-      const { error: clearanceError } = await supabase
-        .from('clearance_requests')
-        .delete()
-        .eq('id', id);
-      
-      if (clearanceError) throw clearanceError;
+      const res = await fetch(`/api/clearances/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to delete clearance request');
 
       toast.success('Request deleted successfully');
       navigate(backPath);
