@@ -15,11 +15,26 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const showArchived = url.searchParams.get('archived') === '1';
+  const course = url.searchParams.get('course');
+  const yearLevel = url.searchParams.get('year_level');
+
+  const archivedClause = showArchived
+    ? { isArchived: true }
+    : { OR: [{ isArchived: false }, { isArchived: null as any }] };
+
+  const profileWhere =
+    course && course !== 'all' && yearLevel && yearLevel !== 'all'
+      ? { ...archivedClause, course, yearLevel }
+      : course && course !== 'all'
+        ? { ...archivedClause, course }
+        : yearLevel && yearLevel !== 'all'
+          ? { ...archivedClause, yearLevel }
+          : archivedClause;
 
   const students = await prisma.user.findMany({
     where: {
       roles: { some: { role: 'student' } },
-      profile: showArchived ? { isArchived: true } : { OR: [{ isArchived: false }, { isArchived: null as any }] },
+      profile: profileWhere,
     },
     include: { profile: true },
     orderBy: { profile: { fullName: 'asc' } },

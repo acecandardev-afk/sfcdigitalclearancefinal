@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -40,8 +39,6 @@ import { getStatusLabel } from '@/lib/terms';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
 
 type ClearanceStatus = 'pending' | 'in_progress' | 'approved' | 'rejected';
-
-const PAGE_SIZE = 800;
 
 function csvEscape(value: string | number | null | undefined): string {
   const s = value === null || value === undefined ? '' : String(value);
@@ -147,23 +144,6 @@ export default function Reports() {
     return { from: start.toISOString(), to: end.toISOString(), invalid: false as const };
   }, [allDates, fromDate, toDate]);
 
-  async function paginateClearances(
-    build: () => ReturnType<ReturnType<typeof supabase.from>['select']>
-  ): Promise<ClearanceRow[]> {
-    const out: ClearanceRow[] = [];
-    let offset = 0;
-    for (;;) {
-      let q = build().order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
-      const { data, error } = await q;
-      if (error) throw error;
-      const chunk = (data || []) as ClearanceRow[];
-      out.push(...chunk);
-      if (chunk.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
-    }
-    return out;
-  }
-
   const generateClearances = async () => {
     if ('invalid' in rangeIso && rangeIso.invalid) {
       toast.error('Invalid date range (from must be before to).');
@@ -171,16 +151,18 @@ export default function Reports() {
     }
     setLoading(true);
     try {
-      const rows = await paginateClearances(() => {
-        let q = supabase.from('clearance_requests').select(
-          `id, title, description, status, created_at, updated_at, student_id,
-           profiles:student_id (full_name, email, student_id, course, year_level)`
-        );
-        if (clearanceStatus !== 'all') q = q.eq('status', clearanceStatus);
-        if (rangeIso.from) q = q.gte('created_at', rangeIso.from);
-        if (rangeIso.to) q = q.lte('created_at', rangeIso.to);
-        return q;
-      });
+      const params = new URLSearchParams({ type: 'clearances' });
+      if (clearanceStatus !== 'all') params.set('clearanceStatus', clearanceStatus);
+      if (allDates) {
+        params.set('allDates', '1');
+      } else if (rangeIso.from && rangeIso.to) {
+        params.set('from', fromDate);
+        params.set('to', toDate);
+      }
+      const res = await fetch(`/api/admin/reports?${params}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const rows = (json.clearances ?? []) as ClearanceRow[];
       setClearanceRows(rows);
       toast.success(`Loaded ${rows.length} clearance record(s).`);
     } catch (e) {
@@ -198,106 +180,28 @@ export default function Reports() {
     }
     setLoading(true);
     try {
-      const sigs: {
-        id: string;
-        clearance_request_id: string;
-        status: ClearanceStatus | null;
-        signed_at: string | null;
-        created_at: string | null;
-        sequence_order: number;
-        notes: string | null;
-        remarks: string | null;
-        signatories: { name: string; position: string; department: string; email: string } | null;
-      }[] = [];
-
-      let offset = 0;
-      for (;;) {
-        let q = supabase
-          .from('clearance_signatures')
-          .select(
-            `id, clearance_request_id, status, signed_at, created_at, sequence_order, notes, remarks,
-             signatories (name, position, department, email)`
-          )
-          .order('created_at', { ascending: false })
-          .range(offset, offset + PAGE_SIZE - 1);
-
-        if (signatureStatus !== 'all') q = q.eq('status', signatureStatus);
-        if (rangeIso.from) q = q.gte('created_at', rangeIso.from);
-        if (rangeIso.to) q = q.lte('created_at', rangeIso.to);
-
-        const { data, error } = await q;
-        if (error) throw error;
-        const chunk = data || [];
-        sigs.push(...(chunk as typeof sigs));
-        if (chunk.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
+      const params = new URLSearchParams({ type: 'signatures' });
+      if (signatureStatus !== 'all') params.set('signatureStatus', signatureStatus);
+      if (signatureClearanceStatus !== 'all') {
+        params.set('signatureClearanceStatus', signatureClearanceStatus);
+      }
+      if (allDates) {
+        params.set('allDates', '1');
+      } else if (rangeIso.from && rangeIso.to) {
+        params.set('from', fromDate);
+        params.set('to', toDate);
       }
 
-      if (sigs.length === 0) {
+      const res = await fetch(`/api/admin/reports?${params}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const merged = (json.signatures ?? []) as SignatureRow[];
+
+      if (merged.length === 0) {
         setSignatureRows([]);
         toast.success('No signature rows match the filters.');
         setLoading(false);
         return;
-      }
-
-      const clearanceIds = [...new Set(sigs.map((s) => s.clearance_request_id))];
-      const { data: crs, error: crErr } = await supabase
-        .from('clearance_requests')
-        .select('id, title, status, created_at, student_id')
-        .in('id', clearanceIds);
-
-      if (crErr) throw crErr;
-
-      const crsAny = (crs || []) as any[];
-      const clearanceMap = new Map<string, any>(crsAny.map((c) => [String(c.id), c]));
-      let studentIds = [...new Set(crsAny.map((c) => String(c.student_id)))];
-
-      let allowedClearanceIds = new Set(clearanceIds);
-      if (signatureClearanceStatus !== 'all') {
-        allowedClearanceIds = new Set(
-          crsAny.filter((c) => c.status === signatureClearanceStatus).map((c) => String(c.id))
-        );
-        studentIds = [
-          ...new Set(
-            crsAny
-              .filter((c) => c.status === signatureClearanceStatus)
-              .map((c) => String(c.student_id))
-          ),
-        ];
-      }
-
-      const { data: profs, error: pErr } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, student_id, course, year_level')
-        .in('id', studentIds);
-
-      if (pErr) throw pErr;
-      const profsAny = (profs || []) as any[];
-      const profileMap = new Map<string, any>(profsAny.map((p) => [String(p.id), p]));
-
-      const merged: SignatureRow[] = [];
-      for (const s of sigs) {
-        const cr = clearanceMap.get(s.clearance_request_id);
-        if (!cr) continue;
-        if (!allowedClearanceIds.has(String(cr.id))) continue;
-        const st = profileMap.get(String(cr.student_id));
-        merged.push({
-          ...s,
-          clearance: {
-            id: cr.id,
-            title: cr.title,
-            status: cr.status,
-            created_at: cr.created_at,
-            student_id: cr.student_id,
-          },
-          student: {
-            full_name: (st as any)?.full_name ?? '—',
-            email: (st as any)?.email ?? null,
-            student_id: (st as any)?.student_id ?? null,
-            course: (st as any)?.course ?? null,
-            year_level: (st as any)?.year_level ?? null,
-          },
-        });
       }
 
       setSignatureRows(merged);
@@ -462,11 +366,17 @@ export default function Reports() {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-primary mb-1">
-              <BarChart3 className="h-6 w-6" />
-              <span className="text-sm font-medium uppercase tracking-wide">Administrator</span>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="p-2 rounded-xl bg-[#1a3c5e]/10 dark:bg-blue-500/15">
+                <BarChart3 className="h-6 w-6 text-[#1a3c5e] dark:text-blue-400" />
+              </div>
+              <span className="text-sm font-medium uppercase tracking-wide text-[#1a3c5e]/80 dark:text-blue-400/90">
+                Administrator
+              </span>
             </div>
-            <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Reports</h1>
+            <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight text-[#1a3c5e] dark:text-blue-400">
+              Reports
+            </h1>
             <p className="text-muted-foreground mt-1 text-sm max-w-xl">
               Generate tabular reports and export CSV for clearance requests and per-signatory signature steps.
               Date filters use the record creation time in the database (UTC).
@@ -474,7 +384,7 @@ export default function Reports() {
           </div>
         </div>
 
-        <Card className="border-border/60 shadow-sm overflow-hidden">
+        <Card className="border border-border/50 rounded-xl shadow-sm overflow-hidden">
           <CardHeader className="border-b bg-muted/30 pb-4">
             <div className="flex flex-col lg:flex-row lg:items-start gap-6">
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">

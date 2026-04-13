@@ -1,5 +1,4 @@
 import { format } from 'date-fns';
-import type { Json } from '@/integrations/supabase/types';
 import type { UiStepRow } from './myClearanceTypes';
 
 export type TimelineEntry = {
@@ -83,7 +82,7 @@ export function buildTimelineEntries(row: UiStepRow): TimelineEntry[] {
   return entries;
 }
 
-export type ClearanceActivityLogRow = { action: string; details: Json; created_at: string };
+export type ClearanceActivityLogRow = { action: string; details: unknown; created_at: string };
 
 /** Map activity_logs rows (for this office + clearance) into timeline entries. */
 export function activityLogsToTimelineEntries(rows: ClearanceActivityLogRow[]): TimelineEntry[] {

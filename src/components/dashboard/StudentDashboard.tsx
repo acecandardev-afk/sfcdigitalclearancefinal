@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,19 +60,12 @@ export default function StudentDashboard() {
 
   const fetchClearances = async () => {
     try {
-      const { data, error } = await supabase
-        .from('clearance_requests')
-        .select(`
-          *,
-          clearance_signatures(id, status, sequence_order, signed_at, signatories(id, name, position, department))
-        `)
-        .eq('student_id', user?.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const res = await fetch('/api/clearances?include=signatures', { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const data = (json.clearances ?? []) as ClearanceRequest[];
 
       const processedData = data.map((item) => {
-        // Sort signatures by sequence_order
         const sortedSignatures = [...(item.clearance_signatures || [])].sort(
           (a, b) => a.sequence_order - b.sequence_order
         );

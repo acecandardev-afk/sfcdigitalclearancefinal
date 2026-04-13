@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,98 +65,10 @@ export default function ApprovedClearances() {
 
   const fetchApprovedSignatures = async () => {
     try {
-      // Get signatory ID for current user
-      const { data: signatoryData, error: signatoryError } = await supabase
-        .from('signatories')
-        .select('id')
-        .eq('user_id', user?.id)
-        .single();
-
-      if (signatoryError || !signatoryData) {
-        setLoading(false);
-        return;
-      }
-
-      // Fetch approved signatures
-      const { data, error } = await supabase
-        .from('clearance_signatures')
-        .select(`
-          id,
-          status,
-          remarks,
-          signed_at,
-          clearance_request:clearance_requests(
-            id,
-            title,
-            description,
-            status,
-            created_at,
-            student_id
-          )
-        `)
-        .eq('signatory_id', signatoryData.id)
-        .in('status', ['approved', 'rejected'])
-        .order('signed_at', { ascending: false });
-
-      if (error) throw error;
-
-      type ProfileRow = {
-        id: string;
-        full_name: string;
-        student_id: string | null;
-        course: string | null;
-        year_level: string | null;
-      };
-
-      type ApprovedSigRow = {
-        id: string;
-        status: string;
-        remarks: string | null;
-        signed_at: string | null;
-        clearance_request: {
-          id: string;
-          title: string;
-          description: string | null;
-          status: string;
-          created_at: string;
-          student_id: string;
-        } | null;
-      };
-
-      const rows = (data || []) as ApprovedSigRow[];
-
-      // Get student IDs and fetch profiles
-      const studentIds = [...new Set(
-        rows.map((s) => s.clearance_request?.student_id).filter((id): id is string => Boolean(id))
-      )];
-
-      const profilesMap: Record<string, ProfileRow> = {};
-      if (studentIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, student_id, course, year_level')
-          .in('id', studentIds);
-
-        (profiles || []).forEach((p: ProfileRow) => {
-          profilesMap[p.id] = p;
-        });
-      }
-
-      // Attach profiles to signatures
-      const processedSignatures = rows.map((sig: ApprovedSigRow) => ({
-        ...sig,
-        clearance_request: {
-          ...sig.clearance_request,
-          profiles: profilesMap[sig.clearance_request?.student_id] || {
-            full_name: 'Unknown',
-            student_id: null,
-            course: null,
-            year_level: null,
-          },
-        },
-      }));
-
-      setSignatures(processedSignatures as ApprovedSignature[]);
+      const res = await fetch('/api/signatory/history', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load processed requests');
+      const json = await res.json();
+      setSignatures((json.signatures || []) as ApprovedSignature[]);
     } catch (error) {
       console.error('Error fetching approved signatures:', error);
       toast.error('Failed to load processed requests');

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -83,32 +82,14 @@ export default function BulkAssignSignatories() {
 
   const fetchStudents = async () => {
     try {
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('role', 'student');
-
-      if (roleError) throw roleError;
-      const userIds = (roleData || []).map((r) => r.user_id);
-      if (userIds.length === 0) {
-        setStudents([]);
-        setLoading(false);
-        return;
-      }
-
-      let query = supabase
-        .from('profiles')
-        .select('id, full_name, email, student_id, year_level, course')
-        .in('id', userIds)
-        .or('is_archived.eq.false,is_archived.is.null')
-        .order('full_name');
-
-      if (courseFilter !== 'all') query = query.eq('course', courseFilter);
-      if (yearLevelFilter !== 'all') query = query.eq('year_level', yearLevelFilter);
-
-      const { data: profiles, error } = await query;
-      if (error) throw error;
-      setStudents((profiles as StudentProfile[]) || []);
+      const params = new URLSearchParams();
+      if (courseFilter !== 'all') params.set('course', courseFilter);
+      if (yearLevelFilter !== 'all') params.set('year_level', yearLevelFilter);
+      const qs = params.toString();
+      const res = await fetch(`/api/students${qs ? `?${qs}` : ''}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load students');
+      const json = await res.json();
+      setStudents((json.students as StudentProfile[]) || []);
     } catch (error) {
       console.error('Error fetching students:', error);
       toast.error('Failed to load students');
@@ -119,15 +100,22 @@ export default function BulkAssignSignatories() {
 
   const fetchSignatories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('signatories')
-        .select('id, name, position, department, signatory_group, authority_sequence_order')
-        .eq('is_active', true)
-        .order('signatory_group')
-        .order('authority_sequence_order', { ascending: true, nullsFirst: true });
-
-      if (error) throw error;
-      setSignatories((data as Signatory[]) || []);
+      const res = await fetch('/api/signatories?active_only=true&order=bulk_assign', {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to load signatories');
+      const json = await res.json();
+      const raw = (json.signatories || []) as any[];
+      const mapped: Signatory[] = raw.map((s) => ({
+        id: String(s.id),
+        name: String(s.name ?? ''),
+        position: String(s.position ?? ''),
+        department: String(s.department ?? ''),
+        signatory_group: (s.signatoryGroup ?? s.signatory_group) as 'standard' | 'authority',
+        authority_sequence_order:
+          s.authoritySequenceOrder ?? s.authority_sequence_order ?? null,
+      }));
+      setSignatories(mapped);
     } catch (error) {
       console.error('Error fetching signatories:', error);
       toast.error('Failed to load signatories');
@@ -146,38 +134,19 @@ export default function BulkAssignSignatories() {
 
     setAssigning(true);
     try {
-      const standardSignatories = signatories.filter((s) => s.signatory_group === 'standard');
-      const authoritySignatories = signatories
-        .filter((s) => s.signatory_group === 'authority' && s.authority_sequence_order != null)
-        .sort((a, b) => (a.authority_sequence_order ?? 0) - (b.authority_sequence_order ?? 0));
-
-      const inserts: { student_id: string; signatory_id: string; signatory_group: string; sequence_order: number }[] = [];
-      for (const studentId of selectedIds) {
-        let seq = 1;
-        for (const s of standardSignatories) {
-          inserts.push({
-            student_id: studentId,
-            signatory_id: s.id,
-            signatory_group: 'standard',
-            sequence_order: seq++,
-          });
-        }
-        for (const s of authoritySignatories) {
-          inserts.push({
-            student_id: studentId,
-            signatory_id: s.id,
-            signatory_group: 'authority',
-            sequence_order: seq++,
-          });
-        }
+      const res = await fetch('/api/admin/bulk-assign-signatories', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentIds: Array.from(selectedIds) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof json.error === 'string' ? json.error : 'Failed to assign signatories');
       }
-
-      // Delete existing assignments for selected students, then insert
-      await supabase.from('student_signatory_assignments').delete().in('student_id', Array.from(selectedIds));
-      const { error } = await supabase.from('student_signatory_assignments').insert(inserts);
-
-      if (error) throw error;
-      toast.success(`Assigned ${signatories.length} signatories to ${selectedIds.size} student(s)`);
+      const perStudent = Number(json.signatoriesPerStudent ?? signatories.length);
+      const count = Number(json.studentsAssigned ?? selectedIds.size);
+      toast.success(`Assigned ${perStudent} signatories to ${count} student(s)`);
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Error bulk assigning:', error);

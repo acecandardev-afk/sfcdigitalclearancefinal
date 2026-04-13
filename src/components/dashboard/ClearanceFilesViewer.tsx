@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -14,10 +13,10 @@ import { toast } from 'sonner';
 interface ClearanceFile {
   id: string;
   file_name: string;
-  file_path: string;
-  file_size: number | null;
+  content_type: string | null;
+  blob_url: string;
   uploaded_at: string | null;
-  clearance_signature_id?: string | null;
+  signature_id?: string | null;
 }
 
 interface ClearanceFilesViewerProps {
@@ -51,14 +50,10 @@ export default function ClearanceFilesViewer({
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('clearance_files')
-        .select('*')
-        .eq('clearance_request_id', clearanceRequestId)
-        .order('uploaded_at', { ascending: false });
-
-      if (error) throw error;
-      setFiles(data || []);
+      const res = await fetch(`/api/clearances/${clearanceRequestId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load files');
+      const json = await res.json();
+      setFiles((json.files || []) as ClearanceFile[]);
     } catch (error) {
       console.error('Error fetching files:', error);
       toast.error('Failed to load files');
@@ -76,11 +71,7 @@ export default function ClearanceFilesViewer({
     setPreviewUrl(null);
     setPreviewLoading(true);
     try {
-      const { data, error } = await supabase.storage
-        .from('clearance-files')
-        .createSignedUrl(file.file_path, 60 * 10);
-      if (error) throw error;
-      setPreviewUrl(data.signedUrl);
+      setPreviewUrl(file.blob_url);
     } catch (e) {
       console.error('Error creating preview url:', e);
       toast.error('Failed to open preview');
@@ -93,21 +84,12 @@ export default function ClearanceFilesViewer({
   const handleDownload = async (file: ClearanceFile) => {
     setDownloading(file.id);
     try {
-      const { data, error } = await supabase.storage
-        .from('clearance-files')
-        .download(file.file_path);
-
-      if (error) throw error;
-
-      // Create download link
-      const url = URL.createObjectURL(data);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = file.blob_url;
       a.download = file.file_name;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
 
       toast.success('File downloaded successfully');
     } catch (error) {
@@ -120,13 +102,7 @@ export default function ClearanceFilesViewer({
 
   const handleView = async (file: ClearanceFile) => {
     try {
-      const { data, error } = await supabase.storage
-        .from('clearance-files')
-        .createSignedUrl(file.file_path, 60 * 5); // 5 minutes
-
-      if (error) throw error;
-
-      window.open(data.signedUrl, '_blank');
+      window.open(file.blob_url, '_blank');
     } catch (error) {
       console.error('Error viewing file:', error);
       toast.error('Failed to open file');
@@ -147,12 +123,7 @@ export default function ClearanceFilesViewer({
     return <File className="h-5 w-5" />;
   };
 
-  const formatFileSize = (bytes: number | null) => {
-    if (!bytes) return 'Unknown size';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
+  const formatFileSize = (_bytes: number | null) => '—';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -186,7 +157,7 @@ export default function ClearanceFilesViewer({
                   <div className="min-w-0">
                     <p className="font-medium truncate">{file.file_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatFileSize(file.file_size)}
+                      {formatFileSize(null)}
                     </p>
                   </div>
                 </div>

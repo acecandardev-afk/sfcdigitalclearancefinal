@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -35,90 +33,25 @@ export default function NewClearance() {
   useEffect(() => {
     if (!user?.id) return;
 
-    fetchSignatoriesForStudent(user.id);
-
-    (async () => {
+    void (async () => {
       try {
-        const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-        const { data: security } = await sb
-          .from('system_settings')
-          .select('value_json')
-          .eq('key', 'security')
-          .maybeSingle();
-        const allowMultiple = (security?.value_json as { allow_multiple_clearances?: boolean } | null)?.allow_multiple_clearances ?? false;
-        if (allowMultiple) {
-          setAllowNewClearance(true);
-          return;
-        }
-        const { count } = await supabase
-          .from('clearance_requests')
-          .select('id', { count: 'exact', head: true })
-          .eq('student_id', user.id)
-          .in('status', ['pending', 'in_progress']);
-        setAllowNewClearance((count ?? 0) === 0);
-      } catch {
+        setLoadingSignatories(true);
+        const res = await fetch('/api/student/new-clearance-config', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load signatories');
+        const json = await res.json();
+        const list = (json.signatories || []) as DefaultSignatory[];
+        setSignatories(list);
+        setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
+        setAllowNewClearance((json.allowNewClearance as boolean) ?? true);
+      } catch (e) {
+        console.error(e);
         setAllowNewClearance(true);
+        toast.error('Failed to load signatories. Please contact the administrator.');
+      } finally {
+        setLoadingSignatories(false);
       }
     })();
   }, [user?.id]);
-
-  const fetchSignatoriesForStudent = async (studentId: string) => {
-    try {
-      setLoadingSignatories(true);
-
-      const { data: assignmentData } = await supabase
-        .from('student_signatory_assignments')
-        .select('signatory_id, sequence_order, signatory_group, signatories(id, name, position, department, signatory_group, authority_sequence_order)')
-        .eq('student_id', studentId)
-        .order('sequence_order', { ascending: true });
-
-      if (assignmentData && assignmentData.length > 0) {
-        const rows = assignmentData as any[];
-        const list: DefaultSignatory[] = rows
-          .filter((row) => row?.signatories)
-          .map((row) => ({
-            id: String(row.signatories.id),
-            name: String(row.signatories.name),
-            position: String(row.signatories.position),
-            department: String(row.signatories.department),
-            order: Number(row.sequence_order),
-            signatory_group: row.signatories.signatory_group === 'authority' ? 'authority' : 'standard',
-            authority_sequence_order: row.signatories.authority_sequence_order ?? null,
-          }));
-        setSignatories(list);
-        setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
-        setLoadingSignatories(false);
-        return;
-      }
-
-      const { data: defaultData, error } = await supabase
-        .from('clearance_default_signatories')
-        .select('signatory_id, sequence_order, signatories(id, name, position, department, signatory_group, authority_sequence_order)')
-        .order('sequence_order', { ascending: true });
-
-      if (error) throw error;
-
-      const rows = (defaultData as any[] | null | undefined) ?? [];
-      const list: DefaultSignatory[] = rows
-        .filter((row) => row?.signatories)
-        .map((row) => ({
-          id: String(row.signatories.id),
-          name: String(row.signatories.name),
-          position: String(row.signatories.position),
-          department: String(row.signatories.department),
-          order: Number(row.sequence_order),
-          signatory_group: row.signatories.signatory_group === 'authority' ? 'authority' : 'standard',
-          authority_sequence_order: row.signatories.authority_sequence_order ?? null,
-        }));
-      setSignatories(list);
-      setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
-    } catch (error) {
-      console.error('Error fetching signatories:', error);
-      toast.error('Failed to load signatories. Please contact the administrator.');
-    } finally {
-      setLoadingSignatories(false);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
@@ -163,53 +96,48 @@ export default function NewClearance() {
     try {
       const title = customMessage.trim() || `Clearance Request - ${new Date().toLocaleDateString('en-US')}`;
 
-      const { data: clearanceData, error: clearanceError } = await supabase
-        .from('clearance_requests')
-        .insert({
-          student_id: user?.id,
-          title,
-          description: customMessage.trim() || null,
-          status: 'pending',
-        })
-        .select()
-        .single();
-
-      if (clearanceError) throw clearanceError;
-
+      const uploadedFiles: { file_name: string; content_type: string | null; blob_url: string }[] = [];
       for (const file of files) {
-        const filePath = `${user?.id}/${clearanceData.id}/${Date.now()}-${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from('clearance-files')
-          .upload(filePath, file);
-        if (uploadError) continue;
-        await supabase.from('clearance_files').insert({
-          clearance_request_id: clearanceData.id,
-          file_name: file.name,
-          file_path: filePath,
-          file_size: file.size,
+        const form = new FormData();
+        form.append('file', file);
+        form.append('folder', 'clearance-files');
+        const up = await fetch('/api/blob/upload', {
+          method: 'POST',
+          credentials: 'include',
+          body: form,
+        });
+        const upJson = await up.json().catch(() => ({}));
+        if (!up.ok) throw new Error(upJson?.error || 'Upload failed');
+        uploadedFiles.push({
+          file_name: String(upJson.file_name ?? file.name),
+          content_type: (upJson.content_type ?? null) as string | null,
+          blob_url: String(upJson.blob_url),
         });
       }
 
-      const selectedSignatories = signatories.filter((s) => selectedSignatoryIds.has(s.id));
-      const signatureInserts = selectedSignatories.map((sig) => ({
-        clearance_request_id: clearanceData.id,
-        signatory_id: sig.id,
-        status: 'pending' as const,
-        sequence_order: sig.order,
-        signatory_group: sig.signatory_group || 'standard',
-        authority_sequence_order: sig.authority_sequence_order ?? null,
-      }));
+      const selectedSignatories = signatories
+        .filter((s) => selectedSignatoryIds.has(s.id))
+        .map((s) => ({
+          signatory_id: s.id,
+          sequence_order: s.order,
+          signatory_group: s.signatory_group || 'standard',
+          authority_sequence_order: s.authority_sequence_order ?? null,
+        }));
 
-      const { error: signaturesError } = await supabase
-        .from('clearance_signatures')
-        .insert(signatureInserts);
+      const res = await fetch('/api/clearance/create', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description: customMessage.trim() || null,
+          signatories: selectedSignatories,
+          files: uploadedFiles,
+        }),
+      });
 
-      if (signaturesError) throw signaturesError;
-
-      void invokeAuthenticatedFunction('notify-signatories', {
-        clearance_request_id: clearanceData.id,
-        signatory_ids: selectedSignatories.map((s) => s.id),
-      }).catch(console.error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to submit request');
 
       toast.success('Clearance request submitted! View status in My Requests.');
       navigate('/dashboard/clearances');

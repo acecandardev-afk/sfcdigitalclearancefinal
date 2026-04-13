@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +31,7 @@ import { toast } from 'sonner';
 import ClearanceFilesViewer from '@/components/dashboard/ClearanceFilesViewer';
 import ApprovedStamp from '@/components/clearance/ApprovedStamp';
 import { TERMS } from '@/lib/terms';
-import { postgrestErrorMessage, safeActionErrorMessage } from '@/lib/userFacingError';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
 import { logActivity } from '@/hooks/useActivityLog';
 import { Separator } from '@/components/ui/separator';
 
@@ -113,125 +112,38 @@ export default function SignatoryClearanceDetail() {
   const fetchClearanceDetail = async () => {
     if (!id || !user) return;
     try {
-      // Get signatory ID for current user
-      const { data: signatoryData } = await supabase
-        .from('signatories')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      // Fetch clearance request (RLS: signatories see assigned, superadmins see all)
-      const { data: clearanceData, error: clearanceError } = await supabase
-        .from('clearance_requests')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (clearanceError) {
-        console.error('Clearance fetch error:', clearanceError);
-        toast.error(postgrestErrorMessage(clearanceError));
-        setLoading(false);
-        return;
-      }
-      if (!clearanceData) {
+      const res = await fetch(`/api/clearances/${id}`, { credentials: 'include' });
+      if (res.status === 404) {
         toast.error('Request not found. You may not have access or it was removed.');
         setLoading(false);
         return;
       }
+      if (!res.ok) throw new Error('Failed to load request details');
+      const json = await res.json();
 
-      // Fetch student profile separately
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('full_name, student_id, course, year_level, address, age, email')
-        .eq('id', clearanceData.student_id)
-        .maybeSingle();
-
-      const pRow = profileData as any;
-
-      setClearance({
-        ...clearanceData,
-        student: pRow || {
-          full_name: 'Unknown',
-          student_id: null,
-          course: null,
-          year_level: null,
-          address: null,
-          age: null,
-          email: '',
-        },
-      });
-
-      // Fetch all signatures with signatory details
-      const { data: signaturesData, error: signaturesError } = await supabase
-        .from('clearance_signatures')
-        .select(`
-          id,
-          signatory_id,
-          status,
-          notes,
-          remarks,
-          sequence_order,
-          signed_at,
-          signatory_group,
-          authority_sequence_order,
-          signatories (
-            id,
-            name,
-            position,
-            department
-          )
-        `)
-        .eq('clearance_request_id', id)
-        .order('sequence_order', { ascending: true });
-
-      if (signaturesError) throw signaturesError;
-
-      const processedSignatures = ((signaturesData || []) as any[]).map((sig: RawSignatorySignatureRow): Signature => {
-        const { signatories, ...rest } = sig;
-        return {
-          ...rest,
-          signatory: signatories ?? { id: '', name: '', position: '', department: '' },
-        };
-      });
-
+      setClearance(json.clearance as ClearanceDetail);
+      const processedSignatures = (json.signatures || []) as Signature[];
       setSignatures(processedSignatures);
+      setStudentOfficeNote((json.step_note as string | null) ?? null);
 
-      // Find my signature and check if I can sign (hybrid sequence logic)
-      if (signatoryData) {
-        const { data: noteData } = await supabase
-          .from('student_clearance_step_notes')
-          .select('note')
-          .eq('clearance_request_id', id)
-          .eq('signatory_id', signatoryData.id)
-          .maybeSingle();
-        const n = (noteData?.note as string)?.trim();
-        setStudentOfficeNote(n ? (noteData?.note as string) : null);
+      const mySig = processedSignatures.find((s) => s.signatory_id === json.signatory_id);
+      setMySignature(mySig || null);
 
-        const mySig = processedSignatures.find(
-          (s: Signature) => s.signatory_id === signatoryData.id
-        );
-        setMySignature(mySig || null);
-
-        if (mySig && mySig.status === 'pending') {
-          const isAuthority = mySig.signatory_group === 'authority' && mySig.authority_sequence_order != null;
-          if (isAuthority) {
-            // Authority: must wait for all previous authority signatories (by authority_sequence_order)
-            const prevAuthority = processedSignatures.filter(
-              (s: Signature) =>
-                s.signatory_group === 'authority' &&
-                s.authority_sequence_order != null &&
-                (s.authority_sequence_order ?? 0) < (mySig.authority_sequence_order ?? 0)
-            );
-            setCanSign(prevAuthority.every((s: Signature) => s.status === 'approved'));
-          } else {
-            // Standard: flexible order - can sign anytime
-            setCanSign(true);
-          }
+      if (mySig && mySig.status === 'pending') {
+        const isAuthority = mySig.signatory_group === 'authority' && mySig.authority_sequence_order != null;
+        if (isAuthority) {
+          const prevAuthority = processedSignatures.filter(
+            (s) =>
+              s.signatory_group === 'authority' &&
+              s.authority_sequence_order != null &&
+              (s.authority_sequence_order ?? 0) < (mySig.authority_sequence_order ?? 0)
+          );
+          setCanSign(prevAuthority.every((s) => s.status === 'approved'));
         } else {
-          setCanSign(false);
+          setCanSign(true);
         }
       } else {
-        setStudentOfficeNote(null);
+        setCanSign(false);
       }
     } catch (error) {
       console.error('Error fetching clearance:', error);
@@ -253,17 +165,18 @@ export default function SignatoryClearanceDetail() {
 
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from('clearance_signatures')
-        .update({
-          status: actionType === 'approve' ? 'approved' : 'rejected',
+      const res = await fetch('/api/clearance/sign', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signature_id: mySignature.id,
+          action: actionType,
           notes: notes || null,
           remarks: remarks || null,
-          signed_at: new Date().toISOString(),
-        })
-        .eq('id', mySignature.id);
-
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update signature');
 
       void logActivity({
         action: actionType === 'approve' ? 'sign_clearance' : 'reject_clearance',

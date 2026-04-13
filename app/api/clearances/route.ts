@@ -6,7 +6,7 @@ function getRoles(session: any): string[] {
   return ((session as any)?.user?.roles ?? []) as string[];
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -25,6 +25,43 @@ export async function GET() {
   // For signatories we don't use this endpoint yet (they have dedicated endpoints)
   if (!isSuperadmin && !isStudent) {
     return NextResponse.json({ clearances: [] });
+  }
+
+  const url = new URL(req.url);
+  const includeSignatures = url.searchParams.get('include') === 'signatures' && isStudent;
+
+  if (includeSignatures) {
+    const rows = await prisma.clearanceRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        signatures: { include: { signatory: true }, orderBy: { sequenceOrder: 'asc' } },
+      },
+    });
+
+    const mapped = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      status: r.status,
+      created_at: r.createdAt.toISOString(),
+      updated_at: r.updatedAt.toISOString(),
+      student_id: r.studentId,
+      clearance_signatures: r.signatures.map((s) => ({
+        id: s.id,
+        status: s.status,
+        sequence_order: s.sequenceOrder,
+        signed_at: s.signedAt ? s.signedAt.toISOString() : null,
+        signatories: {
+          id: s.signatory.id,
+          name: s.signatory.name,
+          position: s.signatory.position,
+          department: s.signatory.department,
+        },
+      })),
+    }));
+
+    return NextResponse.json({ clearances: mapped });
   }
 
   const rows = await prisma.clearanceRequest.findMany({

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserRole, AppRole } from '@/hooks/useUserRole';
-import { supabase } from '@/integrations/supabase/client';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -120,31 +119,15 @@ export default function Settings() {
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      // Fetch all profiles
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .order('full_name');
-
-      if (profilesError) throw profilesError;
-
-      // Fetch all user roles
-      const { data: userRoles, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('user_id, role');
-
-      if (rolesError) throw rolesError;
-
-      // Combine profiles with their roles
-      const usersWithRoles: UserWithRoles[] = (profiles || []).map((profile) => ({
-        id: profile.id,
-        email: profile.email,
-        full_name: profile.full_name,
-        roles: (userRoles || [])
-          .filter((r) => r.user_id === profile.id)
-          .map((r) => r.role as AppRole),
+      const res = await fetch('/api/admin/users', { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const usersWithRoles: UserWithRoles[] = (json.users || []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        full_name: u.full_name,
+        roles: (u.roles || []) as AppRole[],
       }));
-
       setUsers(usersWithRoles);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -165,27 +148,13 @@ export default function Settings() {
 
     setSavingRoles(true);
     try {
-      // Delete existing roles for this user
-      const { error: deleteError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', selectedUser.id);
-
-      if (deleteError) throw deleteError;
-
-      // Insert new roles
-      if (selectedRoles.length > 0) {
-        const { error: insertError } = await supabase
-          .from('user_roles')
-          .insert(
-            selectedRoles.map((role) => ({
-              user_id: selectedUser.id,
-              role,
-            }))
-          );
-
-        if (insertError) throw insertError;
-      }
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(selectedUser.id)}/roles`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roles: selectedRoles }),
+      });
+      if (!res.ok) throw new Error('failed');
 
       // Log the activity
       await logActivity({
@@ -224,30 +193,18 @@ export default function Settings() {
   const fetchActivityLogs = async () => {
     setLoadingLogs(true);
     try {
-      const { data: logs, error: logsError } = await supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
-
-      if (logsError) throw logsError;
-
-      // Get user info for each log
-      const userIds = [...new Set((logs || []).map((log) => log.user_id))];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', userIds);
-
-      const profilesAny = (profiles || []) as any[];
-      const profileMap = new Map<string, any>(profilesAny.map((p) => [String(p.id), p]) || []);
-
-      const logsAny = (logs || []) as any[];
-      const logsWithUsers: ActivityLog[] = logsAny.map((log) => ({
-        ...log,
-        details: log.details as Record<string, unknown> | null,
-        user_email: (profileMap.get(String(log.user_id)) as any)?.email || 'Unknown',
-        user_name: (profileMap.get(String(log.user_id)) as any)?.full_name || 'Unknown User',
+      const res = await fetch('/api/admin/activity-logs', { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const logsWithUsers: ActivityLog[] = (json.logs || []).map((log: any) => ({
+        id: log.id,
+        user_id: log.user_id,
+        action: log.action,
+        details: (log.details as Record<string, unknown> | null) ?? null,
+        user_agent: log.user_agent,
+        created_at: log.created_at,
+        user_email: log.user_email || 'Unknown',
+        user_name: log.user_name || 'Unknown User',
       }));
 
       setActivityLogs(logsWithUsers);
@@ -310,42 +267,41 @@ export default function Settings() {
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const keys = ['general', 'notifications', 'security', 'clearance'];
-      for (const key of keys) {
-        const { data, error } = await sb
-          .from('system_settings')
-          .select('value_json')
-          .eq('key', key)
-          .maybeSingle();
-        if (error) throw error;
-        const v = data?.value_json as Record<string, unknown> | null;
-        if (key === 'general' && v) {
-          setSystemName((v.system_name as string) ?? 'SFC-G DCS');
-          setInstitutionName((v.institution_name as string) ?? 'Saint Francis College - Guihulngan');
-          setAdminEmail((v.admin_email as string) ?? 'admin@sfc-g.edu.ph');
-        }
-        if (key === 'notifications' && v) {
-          setEmailNotifications((v.email_notifications as boolean) ?? true);
-          setNotifyOnSubmission((v.notify_on_submission as boolean) ?? true);
-          setNotifyOnApproval((v.notify_on_approval as boolean) ?? true);
-          setNotifyOnRejection((v.notify_on_rejection as boolean) ?? true);
-        }
-        if (key === 'security' && v) {
-          setRequireAllSignatures((v.require_all_signatures as boolean) ?? true);
-          setAllowMultipleClearances((v.allow_multiple_clearances as boolean) ?? false);
-          setAutoApproveAfterDays(v.auto_approve_after_days != null ? String(v.auto_approve_after_days) : '');
-        }
-        if (key === 'clearance' && v) {
-          const ps = v.period_start;
-          const pe = v.period_end;
-          setClearancePeriodStart(typeof ps === 'string' ? ps.slice(0, 10) : '');
-          setClearancePeriodEnd(typeof pe === 'string' ? pe.slice(0, 10) : '');
-        }
+      const res = await fetch('/api/admin/system-settings', { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const settings = (json.settings || {}) as Record<string, Record<string, unknown> | null>;
+      const g = settings.general;
+      const n = settings.notifications;
+      const sec = settings.security;
+      const cl = settings.clearance;
+      if (g) {
+        setSystemName((g.system_name as string) ?? 'SFC-G DCS');
+        setInstitutionName((g.institution_name as string) ?? 'Saint Francis College - Guihulngan');
+        setAdminEmail((g.admin_email as string) ?? 'admin@sfc-g.edu.ph');
+      }
+      if (n) {
+        setEmailNotifications((n.email_notifications as boolean) ?? true);
+        setNotifyOnSubmission((n.notify_on_submission as boolean) ?? true);
+        setNotifyOnApproval((n.notify_on_approval as boolean) ?? true);
+        setNotifyOnRejection((n.notify_on_rejection as boolean) ?? true);
+      }
+      if (sec) {
+        setRequireAllSignatures((sec.require_all_signatures as boolean) ?? true);
+        setAllowMultipleClearances((sec.allow_multiple_clearances as boolean) ?? false);
+        setAutoApproveAfterDays(sec.auto_approve_after_days != null ? String(sec.auto_approve_after_days) : '');
+      }
+      if (cl) {
+        const ps = cl.period_start;
+        const pe = cl.period_end;
+        setClearancePeriodStart(typeof ps === 'string' ? ps.slice(0, 10) : '');
+        setClearancePeriodEnd(typeof pe === 'string' ? pe.slice(0, 10) : '');
       }
     } catch (e) {
       console.error('Failed to load settings:', e);
       toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -362,22 +318,20 @@ export default function Settings() {
   const handleSaveGeneral = async () => {
     setSaving(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb
-        .from('system_settings')
-        .upsert(
-          {
-            key: 'general',
-            value_json: {
-              system_name: systemName,
-              institution_name: institutionName,
-              admin_email: adminEmail,
-            },
-            updated_at: new Date().toISOString(),
+      const res = await fetch('/api/admin/system-settings', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'general',
+          valueJson: {
+            system_name: systemName,
+            institution_name: institutionName,
+            admin_email: adminEmail,
           },
-          { onConflict: 'key' }
-        );
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('failed');
       toast.success('General settings saved successfully');
     } catch (e) {
       console.error(e);
@@ -390,23 +344,21 @@ export default function Settings() {
   const handleSaveNotifications = async () => {
     setSaving(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb
-        .from('system_settings')
-        .upsert(
-          {
-            key: 'notifications',
-            value_json: {
-              email_notifications: emailNotifications,
-              notify_on_submission: notifyOnSubmission,
-              notify_on_approval: notifyOnApproval,
-              notify_on_rejection: notifyOnRejection,
-            },
-            updated_at: new Date().toISOString(),
+      const res = await fetch('/api/admin/system-settings', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'notifications',
+          valueJson: {
+            email_notifications: emailNotifications,
+            notify_on_submission: notifyOnSubmission,
+            notify_on_approval: notifyOnApproval,
+            notify_on_rejection: notifyOnRejection,
           },
-          { onConflict: 'key' }
-        );
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('failed');
       toast.success('Notification settings saved successfully');
     } catch (e) {
       console.error(e);
@@ -419,22 +371,20 @@ export default function Settings() {
   const handleSaveSecurity = async () => {
     setSaving(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb
-        .from('system_settings')
-        .upsert(
-          {
-            key: 'security',
-            value_json: {
-              require_all_signatures: requireAllSignatures,
-              allow_multiple_clearances: allowMultipleClearances,
-              auto_approve_after_days: autoApproveAfterDays ? parseInt(autoApproveAfterDays, 10) : null,
-            },
-            updated_at: new Date().toISOString(),
+      const res = await fetch('/api/admin/system-settings', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'security',
+          valueJson: {
+            require_all_signatures: requireAllSignatures,
+            allow_multiple_clearances: allowMultipleClearances,
+            auto_approve_after_days: autoApproveAfterDays ? parseInt(autoApproveAfterDays, 10) : null,
           },
-          { onConflict: 'key' }
-        );
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('failed');
       toast.success('Security settings saved successfully');
     } catch (e) {
       console.error(e);
@@ -457,21 +407,19 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb
-        .from('system_settings')
-        .upsert(
-          {
-            key: 'clearance',
-            value_json: {
-              period_start: hasStart ? clearancePeriodStart : null,
-              period_end: hasEnd ? clearancePeriodEnd : null,
-            },
-            updated_at: new Date().toISOString(),
+      const res = await fetch('/api/admin/system-settings', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'clearance',
+          valueJson: {
+            period_start: hasStart ? clearancePeriodStart : null,
+            period_end: hasEnd ? clearancePeriodEnd : null,
           },
-          { onConflict: 'key' }
-        );
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('failed');
       toast.success('Clearance period saved');
     } catch (e) {
       console.error(e);
@@ -500,9 +448,9 @@ export default function Settings() {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10">
-              <SettingsIcon className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight flex items-center gap-3 text-[#1a3c5e] dark:text-blue-400">
+            <div className="p-2 rounded-xl bg-[#1a3c5e]/10 dark:bg-blue-500/15">
+              <SettingsIcon className="h-6 w-6 text-[#1a3c5e] dark:text-blue-400" />
             </div>
             System Settings
           </h1>

@@ -10,8 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
@@ -32,55 +30,53 @@ export function OfficeStepNoteDialog({
   officeName,
   disabled,
 }: OfficeStepNoteDialogProps) {
-  const { user } = useAuth();
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!open || !clearanceRequestId || !user?.id) {
+    if (!open || !clearanceRequestId) {
       setNote('');
       return;
     }
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const { data, error } = await supabase
-        .from('student_clearance_step_notes')
-        .select('note')
-        .eq('clearance_request_id', clearanceRequestId)
-        .eq('signatory_id', signatoryId)
-        .eq('student_id', user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error) {
-        console.error(error);
+      try {
+        const res = await fetch(
+          `/api/clearances/${encodeURIComponent(clearanceRequestId)}/step-notes/${encodeURIComponent(signatoryId)}`,
+          { credentials: 'include' }
+        );
+        if (!res.ok) throw new Error('load failed');
+        const json = await res.json();
+        if (cancelled) return;
+        setNote(typeof json.note === 'string' ? json.note : '');
+      } catch (e) {
+        console.error(e);
         toast.error('Could not load your note');
-      } else {
-        setNote((data?.note as string) ?? '');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, clearanceRequestId, signatoryId, user?.id]);
+  }, [open, clearanceRequestId, signatoryId]);
 
   const save = async () => {
-    if (!clearanceRequestId || !user?.id) return;
+    if (!clearanceRequestId) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('student_clearance_step_notes').upsert(
+      const res = await fetch(
+        `/api/clearances/${encodeURIComponent(clearanceRequestId)}/step-notes/${encodeURIComponent(signatoryId)}`,
         {
-          clearance_request_id: clearanceRequestId,
-          signatory_id: signatoryId,
-          student_id: user.id,
-          note: note.trim(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'clearance_request_id,signatory_id' }
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: note.trim() }),
+        }
       );
-      if (error) throw error;
+      if (!res.ok) throw new Error('save failed');
       toast.success('Note saved');
       onOpenChange(false);
     } catch (e) {
@@ -93,17 +89,18 @@ export function OfficeStepNoteDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md rounded-xl border-border/60">
         <DialogHeader>
-          <DialogTitle>Note for this office</DialogTitle>
+          <DialogTitle className="text-[#1a3c5e] dark:text-blue-400">Note for this office</DialogTitle>
           <DialogDescription>
-            Share a preferred visit time or short message for <span className="font-medium text-foreground">{officeName}</span>.
-            Signatories can read it when they open your request.
+            Share a preferred visit time or short message for{' '}
+            <span className="font-medium text-foreground">{officeName}</span>. Signatories can read it when they open
+            your request.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <Loader2 className="h-8 w-8 animate-spin text-[#1a3c5e]/50 dark:text-blue-400/50" />
           </div>
         ) : (
           <div className="space-y-2">
@@ -115,15 +112,20 @@ export function OfficeStepNoteDialog({
               onChange={(e) => setNote(e.target.value)}
               disabled={disabled || saving}
               placeholder="e.g. I can visit Tuesday 9–11 AM, or please email me to reschedule."
-              className="resize-none"
+              className="resize-none rounded-xl border-border/60"
             />
           </div>
         )}
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving} className="rounded-xl">
             Cancel
           </Button>
-          <Button type="button" onClick={() => void save()} disabled={disabled || saving || loading}>
+          <Button
+            type="button"
+            onClick={() => void save()}
+            disabled={disabled || saving || loading}
+            className="rounded-xl bg-[#1a3c5e] hover:bg-[#15304d] dark:bg-blue-600"
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
           </Button>
         </DialogFooter>

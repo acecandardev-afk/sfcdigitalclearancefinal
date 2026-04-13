@@ -14,9 +14,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
-import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 import { cn } from '@/lib/utils';
 import { clearancePeriodMeta } from '@/lib/clearancePeriod';
 import { useClearancePeriodSettings } from '@/hooks/useClearancePeriodSettings';
@@ -129,19 +127,18 @@ export default function MyClearancePage() {
     }
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from('activity_logs')
-        .select('action, details, created_at')
-        .eq('details->>clearance_request_id', rid)
-        .eq('details->>signatory_id', timelineRow.signatoryId)
-        .order('created_at', { ascending: true });
+      const qs = new URLSearchParams({
+        clearanceRequestId: rid,
+        signatoryId: timelineRow.signatoryId,
+      });
+      const res = await fetch(`/api/activity/timeline?${qs}`, { credentials: 'include' });
       if (cancelled) return;
-      if (error) {
-        console.error(error);
+      if (!res.ok) {
         setMergedTimeline(base);
         return;
       }
-      const logs = activityLogsToTimelineEntries(data ?? []);
+      const json = await res.json();
+      const logs = activityLogsToTimelineEntries(json.logs ?? []);
       setMergedTimeline(mergeTimelineEntries(base, logs));
     })();
     return () => {
@@ -223,148 +220,62 @@ export default function MyClearancePage() {
     if (!user?.id || !modalRow) return;
     const inBatch = batchSignatoryIds.includes(modalRow.signatoryId);
     try {
-      let requestId = draftRequestId;
-
-      if (!requestId && !readonlyCompleted) {
-        if (!allowMultiple) {
-          const { count } = await supabase
-            .from('clearance_requests')
-            .select('id', { count: 'exact', head: true })
-            .eq('student_id', user.id)
-            .in('status', ['pending', 'in_progress']);
-          if ((count ?? 0) > 0) {
-            toast.error('You already have an active clearance request.');
-            return;
-          }
+      const uploaded: { blob_url: string; file_name: string; content_type: string | null }[] = [];
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('folder', 'clearance-files');
+        const up = await fetch('/api/blob/upload', { method: 'POST', body: fd, credentials: 'include' });
+        if (up.ok) {
+          const j = await up.json();
+          uploaded.push({
+            blob_url: j.blob_url,
+            file_name: j.file_name,
+            content_type: j.content_type ?? null,
+          });
         }
-        const title = `Clearance — ${new Date().toLocaleDateString('en-US')}`;
-        const { data: ins, error: cErr } = await supabase
-          .from('clearance_requests')
-          .insert({ student_id: user.id, title, description: note, status: 'pending' })
-          .select('id')
-          .single();
-        if (cErr) throw cErr;
-        requestId = ins.id;
-        setDraftRequestId(ins.id);
+      }
+
+      const hadRequest = !!draftRequestId;
+      const res = await fetch('/api/student/clearance-office-submit', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clearanceRequestId: draftRequestId,
+          readonlyCompleted,
+          signatoryId: modalRow.signatoryId,
+          sequenceOrder: modalRow.sequenceOrder,
+          signatoryGroup: modalRow.signatoryGroup,
+          authoritySequenceOrder: modalRow.authoritySequenceOrder,
+          signatureId: modalRow.signatureId,
+          note,
+          files: uploaded,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Submission failed');
+      }
+
+      if (!hadRequest && data.requestId) {
+        setDraftRequestId(data.requestId);
         void logActivity({
           action: 'create_clearance',
-          details: { clearance_request_id: ins.id },
+          details: { clearance_request_id: data.requestId },
         });
       }
+      void logActivity({
+        action: 'update_clearance',
+        details: {
+          clearance_request_id: data.requestId,
+          signatory_id: modalRow.signatoryId,
+          step: modalRow.signatureId ? 'resubmit_office' : 'submit_office',
+        },
+      });
 
-      if (!requestId) {
-        toast.error('Unable to create clearance request.');
-        return;
-      }
-
-      const seq = modalRow.sequenceOrder;
+      toast.success(modalRow.signatureId ? 'Resubmitted for review' : 'Request submitted');
       const submittedSignatoryId = modalRow.signatoryId;
-
-      if (modalRow.signatureId) {
-        await supabase.from('clearance_files').delete().eq('clearance_signature_id', modalRow.signatureId);
-        const { error: uErr } = await supabase
-          .from('clearance_signatures')
-          .update({
-            status: 'pending',
-            remarks: note,
-            notes: note,
-            signed_at: null,
-          })
-          .eq('id', modalRow.signatureId);
-        if (uErr) throw uErr;
-        for (const file of files) {
-          const path = `${user.id}/${requestId}/${modalRow.signatureId}-${Date.now()}-${file.name}`;
-          const { error: upErr } = await supabase.storage.from('clearance-files').upload(path, file);
-          if (upErr) continue;
-          await supabase.from('clearance_files').insert({
-            clearance_request_id: requestId,
-            clearance_signature_id: modalRow.signatureId,
-            file_name: file.name,
-            file_path: path,
-            file_size: file.size,
-          });
-        }
-        void invokeAuthenticatedFunction('notify-signatories', {
-          clearance_request_id: requestId,
-          signatory_ids: [modalRow.signatoryId],
-        }).catch(console.error);
-        void logActivity({
-          action: 'update_clearance',
-          details: {
-            clearance_request_id: requestId,
-            signatory_id: modalRow.signatoryId,
-            step: 'resubmit_office',
-          },
-        });
-        toast.success('Resubmitted for review');
-      } else {
-        const { data: existingSig, error: existingErr } = await supabase
-          .from('clearance_signatures')
-          .select('id')
-          .eq('clearance_request_id', requestId)
-          .eq('signatory_id', modalRow.signatoryId)
-          .maybeSingle();
-        if (existingErr) throw existingErr;
-
-        const signatureId = existingSig?.id;
-
-        const { data: sigRow, error: sErr } = signatureId
-          ? await supabase
-              .from('clearance_signatures')
-              .update({
-                sequence_order: seq,
-                status: 'pending',
-                signatory_group: modalRow.signatoryGroup,
-                authority_sequence_order: modalRow.authoritySequenceOrder,
-                remarks: note,
-                notes: note,
-                signed_at: null,
-              })
-              .eq('id', signatureId)
-              .select('id')
-              .single()
-          : await supabase
-              .from('clearance_signatures')
-              .insert({
-                clearance_request_id: requestId,
-                signatory_id: modalRow.signatoryId,
-                sequence_order: seq,
-                status: 'pending',
-                signatory_group: modalRow.signatoryGroup,
-                authority_sequence_order: modalRow.authoritySequenceOrder,
-                remarks: note,
-                notes: note,
-              })
-              .select('id')
-              .single();
-        if (sErr) throw sErr;
-        for (const file of files) {
-          const path = `${user.id}/${requestId}/${sigRow.id}-${Date.now()}-${file.name}`;
-          const { error: upErr } = await supabase.storage.from('clearance-files').upload(path, file);
-          if (upErr) continue;
-          await supabase.from('clearance_files').insert({
-            clearance_request_id: requestId,
-            clearance_signature_id: sigRow.id,
-            file_name: file.name,
-            file_path: path,
-            file_size: file.size,
-          });
-        }
-        void invokeAuthenticatedFunction('notify-signatories', {
-          clearance_request_id: requestId,
-          signatory_ids: [modalRow.signatoryId],
-        }).catch(console.error);
-        void logActivity({
-          action: 'update_clearance',
-          details: {
-            clearance_request_id: requestId,
-            signatory_id: modalRow.signatoryId,
-            step: 'submit_office',
-          },
-        });
-        toast.success('Request submitted');
-      }
-
       setModalRow(null);
       if (inBatch) {
         setBatchSignatoryIds((ids) => ids.filter((id) => id !== submittedSignatoryId));

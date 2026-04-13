@@ -52,6 +52,7 @@
   "exclude": [
     "node_modules",
     "src/main.tsx",
-    "supabase/functions/**"
+    "supabase/functions/**",
+    "scripts/**"
   ]
 }

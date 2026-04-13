@@ -129,6 +129,7 @@ model ClearanceSignature {
   remarks                String?
   sequenceOrder          Int
   signedAt               DateTime?
+  createdAt              DateTime       @default(now())
   signatoryGroup         SignatoryGroup  @default(standard)
   authoritySequenceOrder Int?
 

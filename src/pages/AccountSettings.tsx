@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -74,17 +73,11 @@ export default function AccountSettings() {
     void (async () => {
       setLoadingProfile(true);
       try {
-        const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-        const { data, error } = await sb
-          .from('profiles')
-          .select('full_name, year_level, course, address, age')
-          .eq('id', user.id)
-          .maybeSingle();
-
+        const res = await fetch('/api/me/profile', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load profile');
+        const json = await res.json();
         if (cancelled) return;
-        if (error) throw error;
-
-        const row = data as any;
+        const row = (json.profile || {}) as any;
         profileForm.reset({
           full_name: row?.full_name || '',
           year_level: row?.year_level || '',
@@ -108,47 +101,20 @@ export default function AccountSettings() {
     if (!user?.id) return;
     setSavingProfile(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const payload = {
-        full_name: data.full_name,
-        year_level: data.year_level || null,
-        course: data.course || null,
-        address: data.address || null,
-        age: data.age ?? null,
-      };
-
-      const { error } = await sb
-        .from('profiles')
-        .update(payload as any)
-        .eq('id', user.id);
-
-      if (error) {
-        const msg = String((error as { message?: unknown } | null)?.message ?? '');
-        const lower = msg.toLowerCase();
-        if (
-          lower.includes("column 'address' does not exist") ||
-          lower.includes('column "address" does not exist') ||
-          lower.includes("column 'age' does not exist") ||
-          lower.includes('column "age" does not exist') ||
-          lower.includes('schema cache') ||
-          lower.includes("could not find the 'address' column") ||
-          lower.includes("could not find the 'age' column")
-        ) {
-          // DB migration likely not applied yet. Save what we can, and guide the admin.
-          const { error: retryErr } = await sb
-            .from('profiles')
-            .update({
-              full_name: data.full_name,
-              year_level: data.year_level || null,
-              course: data.course || null,
-            })
-            .eq('id', user.id);
-          if (retryErr) throw retryErr;
-          toast.error('Profile saved partially. Ask the admin to apply the migration that adds Address/Age fields, then try again.');
-          return;
-        }
-        throw error;
-      }
+      const res = await fetch('/api/me/profile', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: data.full_name,
+          year_level: data.year_level || null,
+          course: data.course || null,
+          address: data.address || null,
+          age: (data.age ?? null) as any,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to update profile');
       toast.success('Profile updated successfully');
     } catch (e: unknown) {
       console.error('Error updating profile:', e);
@@ -162,25 +128,21 @@ export default function AccountSettings() {
     setChangingPassword(true);
 
     try {
-      // First verify current password by re-authenticating
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || '',
-        password: data.currentPassword,
+      const res = await fetch('/api/me/password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: data.currentPassword,
+          new_password: data.newPassword,
+        }),
       });
-
-      if (signInError) {
-        toast.error('Current password is incorrect');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = String(json?.error || 'Failed to change password');
+        toast.error(msg);
         setChangingPassword(false);
         return;
-      }
-
-      // Update to new password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: data.newPassword,
-      });
-
-      if (updateError) {
-        throw updateError;
       }
 
       toast.success('Password changed successfully!');

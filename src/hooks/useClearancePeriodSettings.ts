@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { parseClearancePeriodFromSettings, type ClearancePeriod } from '@/lib/clearancePeriod';
 
 export function useClearancePeriodSettings() {
@@ -9,14 +8,10 @@ export function useClearancePeriodSettings() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { data, error } = await sb
-        .from('system_settings')
-        .select('value_json')
-        .eq('key', 'clearance')
-        .maybeSingle();
-      if (error) throw error;
-      setPeriod(parseClearancePeriodFromSettings(data?.value_json));
+      const res = await fetch('/api/settings/clearance-window', { credentials: 'include' });
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      setPeriod(parseClearancePeriodFromSettings(json.value_json));
     } catch (e) {
       console.error(e);
       setPeriod(null);

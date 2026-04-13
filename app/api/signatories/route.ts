@@ -8,14 +8,21 @@ function requireSuperadmin(session: any) {
   return Boolean(session?.user && roles.includes('superadmin'));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession();
   if (!requireSuperadmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const url = new URL(req.url);
+  const activeOnly = url.searchParams.get('active_only') === '1' || url.searchParams.get('active_only') === 'true';
+  const orderBulk = url.searchParams.get('order') === 'bulk_assign';
+
   const signatories = await prisma.signatory.findMany({
-    orderBy: [{ department: 'asc' }, { name: 'asc' }],
+    where: activeOnly ? { isActive: true } : undefined,
+    orderBy: orderBulk
+      ? [{ signatoryGroup: 'asc' }, { authoritySequenceOrder: { sort: 'asc', nulls: 'first' } }]
+      : [{ department: 'asc' }, { name: 'asc' }],
   });
 
   return NextResponse.json({ signatories });

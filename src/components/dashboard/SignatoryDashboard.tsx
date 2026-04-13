@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -148,158 +147,16 @@ export default function SignatoryDashboard() {
     }
   }, [user]);
 
-  // Real-time subscription for live updates
-  useEffect(() => {
-    if (!user || !signatoryId) return;
-
-    const channel = supabase
-      .channel('signatory-signatures')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'clearance_signatures',
-          filter: `signatory_id=eq.${signatoryId}`,
-        },
-        () => {
-          fetchPendingSignatures();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, signatoryId]);
-
   const fetchPendingSignatures = async () => {
     try {
-      // First get the signatory record for the current user
-      const { data: signatoryData, error: signatoryError } = await supabase
-        .from('signatories')
-        .select('id, name, position, department')
-        .eq('user_id', user?.id)
-        .single();
+      const res = await fetch('/api/signatory/pending', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load signatures');
+      const json = await res.json();
 
-      if (signatoryError || !signatoryData) {
-        setLoading(false);
-        return;
-      }
-
-      setSignatoryId(signatoryData.id);
-      setSignatoryInfo({
-        name: signatoryData.name || 'Signatory',
-        position: signatoryData.position || '',
-        department: signatoryData.department || '',
-      });
-
-      // Then fetch all signatures for this signatory
-      const { data, error } = await supabase
-        .from('clearance_signatures')
-        .select(`
-          *,
-          clearance_request:clearance_requests(
-            id,
-            title,
-            description,
-            created_at,
-            student_id
-          )
-        `)
-        .eq('signatory_id', signatoryData.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Get all student IDs and clearance IDs
-      // Defensive: ensure we never keep duplicate signature rows (can happen if the table
-      // accumulates duplicates over time or if the query returns repeated rows).
-      const rawRows = (data || []) as RawPendingRow[];
-      const rows = Array.from(
-        new Map(rawRows.map((r) => [r.id, r] as const)).values()
-      );
-      const studentIds = [...new Set(rows.map((s) => s.clearance_request?.student_id).filter((id): id is string => Boolean(id)))];
-      const clearanceIds = [...new Set(rows.map((s) => s.clearance_request?.id).filter((id): id is string => Boolean(id)))];
-
-      // Fetch profiles for these students
-      const profilesMap: Record<string, ProfileRow> = {};
-      if (studentIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, student_id, course, year_level')
-          .in('id', studentIds);
-
-        (profiles || []).forEach((p: ProfileRow) => {
-          profilesMap[p.id] = p;
-        });
-      }
-
-      const allSignaturesMap: Record<string, AllSignature[]> = {};
-
-      if (clearanceIds.length > 0) {
-        const { data: allSigs } = await supabase
-          .from('clearance_signatures')
-          .select('id, status, sequence_order, clearance_request_id, signatory_group, authority_sequence_order')
-          .in('clearance_request_id', clearanceIds);
-
-        // Group by clearance_request_id
-        (allSigs as any[] | null | undefined || []).forEach((sig) => {
-          const clearanceId = String(sig.clearance_request_id);
-          if (!allSignaturesMap[clearanceId]) {
-            allSignaturesMap[clearanceId] = [];
-          }
-          allSignaturesMap[clearanceId].push({
-            id: String(sig.id),
-            status: sig.status,
-            sequence_order: Number(sig.sequence_order),
-            clearance_request_id: clearanceId,
-            signatory_group: sig.signatory_group === 'authority' ? 'authority' : 'standard',
-            authority_sequence_order: sig.authority_sequence_order ?? null,
-          } as AllSignature);
-        });
-      }
-
-      // Compute canSign for each signature (hybrid: standard=flexible, authority=sequential)
-      const processedSignatures = rows.map((sig: RawPendingRow) => {
-        const clearanceId = sig.clearance_request?.id;
-        const studentId = sig.clearance_request?.student_id;
-        const allSigsForRequest = clearanceId ? allSignaturesMap[clearanceId] || [] : [];
-
-        let canSign = false;
-        if (sig.status === 'pending') {
-          const isAuthority = sig.signatory_group === 'authority' && sig.authority_sequence_order != null;
-          if (isAuthority) {
-            const prevAuthority = allSigsForRequest.filter(
-              (s: AllSignature) =>
-                s.signatory_group === 'authority' &&
-                s.authority_sequence_order != null &&
-                (s.authority_sequence_order ?? 0) < (sig.authority_sequence_order ?? 0)
-            );
-            canSign = prevAuthority.every((s: AllSignature) => s.status === 'approved');
-          } else {
-            canSign = true; // Standard: flexible order
-          }
-        }
-        
-        return {
-          ...sig,
-          signatory_id: (sig as any).signatory_id,
-          clearance_request: {
-            ...sig.clearance_request,
-            student_id: studentId,
-            profiles: profilesMap[studentId] || {
-              full_name: 'Unknown',
-              student_id: null,
-              course: null,
-              year_level: null,
-            },
-          },
-          canSign,
-        };
-      });
-
-      setSignatures(processedSignatures as unknown as PendingSignature[]);
+      const sig = json.signatory;
+      setSignatoryId(sig?.id ?? null);
+      setSignatoryInfo(sig ? { name: sig.name || 'Signatory', position: sig.position || '', department: sig.department || '' } : null);
+      setSignatures((json.signatures || []) as PendingSignature[]);
     } catch (error) {
       console.error('Error fetching signatures:', error);
       toast.error('Failed to load pending signatures');
@@ -326,17 +183,18 @@ export default function SignatoryDashboard() {
 
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from('clearance_signatures')
-        .update({
-          status: actionType === 'approve' ? 'approved' : 'rejected',
+      const res = await fetch('/api/clearance/sign', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signature_id: selectedSignature.id,
+          action: actionType,
           notes: notes || null,
           remarks: remarks || null,
-          signed_at: new Date().toISOString(),
-        })
-        .eq('id', selectedSignature.id);
-
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update signature');
 
       toast.success(`Request ${actionType === 'approve' ? 'signed' : 'rejected'} successfully`);
       setDialogOpen(false);
@@ -524,16 +382,20 @@ export default function SignatoryDashboard() {
 
     setBulkActionLoading(true);
     try {
-      const { error } = await supabase
-        .from('clearance_signatures')
-        .update({
-          status: bulkActionType === 'approve' ? 'approved' : 'rejected',
-          notes: bulkNotes || null,
-          signed_at: new Date().toISOString(),
-        })
-        .in('id', Array.from(selectedIds));
-
-      if (error) throw error;
+      for (const id of Array.from(selectedIds)) {
+        const res = await fetch('/api/clearance/sign', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            signature_id: id,
+            action: bulkActionType,
+            notes: bulkNotes || null,
+            remarks: null,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to update signatures');
+      }
 
       const sid = signatoryId;
       if (sid) {
