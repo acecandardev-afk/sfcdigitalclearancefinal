@@ -18,6 +18,9 @@ export default {
         sans: ['Inter', 'DM Sans', 'system-ui', 'sans-serif'],
         display: ['Inter', 'DM Sans', 'system-ui', 'sans-serif'],
         formal: ['Inter', 'DM Sans', 'system-ui', 'sans-serif'],
+        /** Formal headings for clearance / registrar-style screens (fonts loaded in index.css) */
+        clearance: ['Crimson Pro', 'Libre Baskerville', 'Georgia', 'Times New Roman', 'serif'],
+        clearanceUi: ['DM Sans', 'Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

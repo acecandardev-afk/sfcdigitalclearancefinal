@@ -93,9 +93,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   /* ——— Student: dedicated sidebar (reference UI) ——— */
   if (useStudentShell) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background">
         {/* Mobile top bar */}
-        <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-slate-200 bg-[#f8fafc] px-3 md:hidden dark:border-slate-800 dark:bg-slate-950">
+        <header className="z-50 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-[#f8fafc] px-3 md:hidden dark:border-slate-800 dark:bg-slate-950">
           <Button
             variant="ghost"
             size="icon"
@@ -112,15 +112,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <NotificationBell />
         </header>
 
-        <div className="flex min-h-[calc(100vh-3.5rem)] items-stretch gap-0 md:min-h-screen">
+        {/* Row: sidebar stays put (md+); only main scrolls */}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             style={{ width: STUDENT_SIDEBAR_WIDTH }}
             className={cn(
-              'fixed bottom-0 left-0 z-40 flex shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-[#f8fafc] transition-transform duration-300 ease-out dark:border-slate-800 dark:bg-slate-950 md:static md:z-0 md:h-screen md:max-h-screen md:translate-x-0',
-              'top-14 md:top-0',
+              'fixed bottom-0 left-0 top-14 z-40 flex shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-[#f8fafc] transition-transform duration-300 ease-out dark:border-slate-800 dark:bg-slate-950',
+              'md:static md:inset-auto md:top-auto md:z-0 md:h-full md:max-h-full md:translate-x-0 md:shadow-none',
               sidebarOpen
-                ? 'z-40 translate-x-0 shadow-2xl md:shadow-none'
-                : '-translate-x-full shadow-none md:translate-x-0'
+                ? 'translate-x-0 shadow-2xl md:shadow-none'
+                : '-translate-x-full md:translate-x-0'
             )}
           >
             <StudentSidebar onNavigate={() => setSidebarOpen(false)} />
@@ -134,7 +135,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             />
           )}
 
-          <main className="relative min-h-0 min-w-0 flex-1 bg-background">
+          <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-background [scrollbar-gutter:stable]">
             <div className="pointer-events-none absolute right-4 top-4 z-20 hidden md:block">
               <div className="pointer-events-auto">
                 <NotificationBell />

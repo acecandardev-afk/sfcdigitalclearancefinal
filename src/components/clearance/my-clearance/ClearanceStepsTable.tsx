@@ -55,7 +55,7 @@ function RequestButton({ row, onClick }: { row: UiStepRow; onClick: () => void }
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-2 rounded-xl border border-[#1a3c5e]/25 bg-gradient-to-r from-[#1a3c5e] to-[#2a5f8f] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:from-[#15304d] hover:to-[#1a3c5e] hover:shadow-md dark:from-blue-600 dark:to-blue-500 dark:hover:from-blue-700 dark:hover:to-blue-600"
+      className="inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-[#1a3c5e]/25 bg-gradient-to-r from-[#1a3c5e] to-[#2a5f8f] px-2.5 py-2 text-xs font-medium text-white shadow-sm transition-all hover:from-[#15304d] hover:to-[#1a3c5e] hover:shadow-md sm:w-auto sm:gap-2 sm:px-3 sm:text-sm dark:from-blue-600 dark:to-blue-500 dark:hover:from-blue-700 dark:hover:to-blue-600"
     >
       <ClipboardList className="h-4 w-4" />
       <span>Request</span>
@@ -69,7 +69,7 @@ function NextRequestButton({ row, onClick }: { row: UiStepRow; onClick: () => vo
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-2 rounded-xl border-2 border-amber-400/60 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-2 text-sm font-medium text-amber-800 shadow-sm transition-all hover:border-amber-500 hover:shadow-md dark:from-amber-900/30 dark:to-orange-900/20 dark:text-amber-200"
+      className="inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border-2 border-amber-400/60 bg-gradient-to-r from-amber-50 to-orange-50 px-2.5 py-2 text-xs font-medium text-amber-800 shadow-sm transition-all hover:border-amber-500 hover:shadow-md sm:w-auto sm:gap-2 sm:px-3 sm:text-sm dark:from-amber-900/30 dark:to-orange-900/20 dark:text-amber-200"
     >
       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
         Next
@@ -224,10 +224,26 @@ export function ClearanceStepsTable({
     }
   };
 
+  /** Fixed column % so long officer titles use width instead of ultra-narrow wrapping. */
+  const colPct = useMemo(() => {
+    const hasH = !!onHistoryClick;
+    const hasN = !!(stepNoteRequestId && onStepNoteClick);
+    const office = 9;
+    const officer = 33;
+    const status = 7;
+    const date = 6;
+    const schedule = 8;
+    const remarks = 10;
+    const baseSum = office + officer + status + date + schedule + remarks;
+    const optional = (hasH ? 6 : 0) + (hasN ? 6 : 0);
+    const action = Math.max(11, 100 - baseSum - optional);
+    return { office, officer, status, date, schedule, remarks, history: hasH ? 6 : 0, note: hasN ? 6 : 0, action };
+  }, [onHistoryClick, stepNoteRequestId, onStepNoteClick]);
+
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900',
+        'relative overflow-hidden rounded-sm border border-[#1a3c5e]/18 bg-[hsl(42_40%_99.5%)] shadow-[0_1px_0_hsl(42_20%_88%)] dark:border-border dark:bg-card/90',
         disabled && 'select-none'
       )}
     >
@@ -237,7 +253,7 @@ export function ClearanceStepsTable({
         </div>
       )}
 
-      <div className="space-y-2 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-slate-50 px-4 py-3 dark:border-gray-800 dark:from-gray-800/80 dark:to-gray-800/50">
+      <div className="space-y-2 border-b border-[#1a3c5e]/10 bg-gradient-to-r from-[hsl(42_28%_97%)] to-[hsl(210_20%_96%)] px-4 py-3 dark:border-border dark:from-muted/40 dark:to-muted/20">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -268,22 +284,42 @@ export function ClearanceStepsTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] text-left text-sm">
+      <div className="min-w-0 overflow-x-auto">
+        <table className="w-full min-w-[min(100%,68rem)] table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col style={{ width: `${colPct.office}%` }} />
+            <col style={{ width: `${colPct.officer}%` }} />
+            <col style={{ width: `${colPct.status}%` }} />
+            <col style={{ width: `${colPct.date}%` }} />
+            <col style={{ width: `${colPct.schedule}%` }} />
+            <col style={{ width: `${colPct.remarks}%` }} />
+            {onHistoryClick && <col style={{ width: `${colPct.history}%` }} />}
+            {stepNoteRequestId && onStepNoteClick && <col style={{ width: `${colPct.note}%` }} />}
+            <col style={{ width: `${colPct.action}%` }} />
+          </colgroup>
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/80 dark:border-gray-800 dark:bg-gray-800/50">
+            <tr className="border-b-2 border-[#1a3c5e]/15 bg-[hsl(210_25%_94%)] dark:border-border dark:bg-muted/50">
               {columns.map((c) => (
-                <th key={c.key} className="px-4 py-3 font-semibold text-gray-600 dark:text-gray-300">
+                <th
+                  key={c.key}
+                  className="align-top px-3 py-3 font-clearance text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#1a3c5e]/85 dark:text-foreground/90 sm:px-4"
+                >
                   {c.label}
                 </th>
               ))}
               {onHistoryClick && (
-                <th className="w-[88px] px-4 py-3 font-semibold text-gray-600 dark:text-gray-300">History</th>
+                <th className="align-top px-3 py-3 font-clearance text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#1a3c5e]/85 dark:text-foreground/90 sm:px-4">
+                  History
+                </th>
               )}
               {stepNoteRequestId && onStepNoteClick && (
-                <th className="w-[88px] px-4 py-3 font-semibold text-gray-600 dark:text-gray-300">Note</th>
+                <th className="align-top px-3 py-3 font-clearance text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#1a3c5e]/85 dark:text-foreground/90 sm:px-4">
+                  Note
+                </th>
               )}
-              <th className="px-4 py-3 font-semibold text-gray-600 dark:text-gray-300">Action</th>
+              <th className="align-top px-3 py-3 font-clearance text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#1a3c5e]/85 dark:text-foreground/90 sm:px-4">
+                Action
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -291,21 +327,26 @@ export function ClearanceStepsTable({
               <tr
                 key={row.id}
                 className={cn(
-                  'border-b border-gray-100 transition-colors dark:border-gray-800',
-                  row.uiStatus === 'Approved' && 'border-l-4 border-l-emerald-500',
-                  row.uiStatus === 'Pending' && 'border-l-4 border-l-amber-400',
-                  row.uiStatus === 'Rejected' && 'border-l-4 border-l-red-500',
-                  row.uiStatus === 'Request' && 'border-l-4 border-l-[#1a3c5e] dark:border-l-blue-500',
-                  'hover:bg-gray-50/80 dark:hover:bg-gray-800/40'
+                  'border-b border-[#1a3c5e]/10 transition-colors dark:border-border/60',
+                  row.uiStatus === 'Approved' && 'border-l-[3px] border-l-emerald-600 bg-emerald-50/35 dark:border-l-emerald-500 dark:bg-emerald-950/15',
+                  row.uiStatus === 'Pending' && 'border-l-[3px] border-l-amber-500 bg-amber-50/30 dark:border-l-amber-500 dark:bg-amber-950/10',
+                  row.uiStatus === 'Rejected' && 'border-l-[3px] border-l-red-500 bg-red-50/25 dark:border-l-red-500 dark:bg-red-950/15',
+                  row.uiStatus === 'Request' &&
+                    'border-l-[3px] border-l-[#1a3c5e] bg-blue-50/25 dark:border-l-blue-500 dark:bg-blue-950/10',
+                  'hover:bg-[hsl(42_35%_98%)] dark:hover:bg-muted/30'
                 )}
                 style={{ animationDelay: `${idx * 40}ms` }}
               >
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{row.office}</td>
-                <td className="max-w-[220px] px-4 py-3 text-gray-600 dark:text-gray-400">{row.officer}</td>
-                <td className="px-4 py-3">
+                <td className="align-top px-3 py-3 font-medium text-[#152a45] dark:text-foreground sm:px-4">
+                  {row.office}
+                </td>
+                <td className="align-top px-3 py-3 text-sm leading-snug text-muted-foreground break-words sm:px-4">
+                  {row.officer}
+                </td>
+                <td className="align-top px-3 py-3 sm:px-4">
                   <span
                     className={cn(
-                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
                       row.uiStatus === 'Approved' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
                       row.uiStatus === 'Pending' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200',
                       row.uiStatus === 'Rejected' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -315,13 +356,16 @@ export function ClearanceStepsTable({
                     {row.uiStatus}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-gray-600 dark:text-gray-400">{row.date}</td>
-                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{row.schedule}</td>
-                <td className="max-w-[200px] truncate px-4 py-3 text-gray-500 dark:text-gray-500" title={row.remarks}>
+                <td className="whitespace-nowrap align-top px-3 py-3 text-muted-foreground sm:px-4">{row.date}</td>
+                <td className="align-top px-3 py-3 text-sm text-muted-foreground sm:px-4">{row.schedule}</td>
+                <td
+                  className="align-top px-3 py-3 text-sm text-muted-foreground line-clamp-3 sm:px-4"
+                  title={row.remarks}
+                >
                   {row.remarks}
                 </td>
                 {onHistoryClick && (
-                  <td className="px-4 py-3">
+                  <td className="align-top px-2 py-3 sm:px-3">
                     <button
                       type="button"
                       onClick={() => onHistoryClick(row)}
@@ -334,7 +378,7 @@ export function ClearanceStepsTable({
                   </td>
                 )}
                 {stepNoteRequestId && onStepNoteClick && (
-                  <td className="px-4 py-3">
+                  <td className="align-top px-2 py-3 sm:px-3">
                     <button
                       type="button"
                       onClick={() => onStepNoteClick(row)}
@@ -347,15 +391,17 @@ export function ClearanceStepsTable({
                     </button>
                   </td>
                 )}
-                <td className="px-4 py-3">
-                  <StatusCell
-                    row={row}
-                    mode={mode}
-                    nextSequentialId={nextSequentialId}
-                    queuePositionMap={queuePositionMap}
-                    onRequest={onRequest}
-                    onResubmit={onResubmitClick}
-                  />
+                <td className="align-top px-2 py-3 sm:px-3">
+                  <div className="flex min-w-0 flex-col items-stretch gap-1">
+                    <StatusCell
+                      row={row}
+                      mode={mode}
+                      nextSequentialId={nextSequentialId}
+                      queuePositionMap={queuePositionMap}
+                      onRequest={onRequest}
+                      onResubmit={onResubmitClick}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}

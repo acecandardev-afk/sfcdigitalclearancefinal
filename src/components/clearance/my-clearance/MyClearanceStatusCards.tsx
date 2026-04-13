@@ -41,20 +41,24 @@ export function MyClearanceStatusCards({ operational, className }: MyClearanceSt
   ];
 
   return (
-    <div className={cn('grid grid-cols-2 gap-3 sm:grid-cols-4', className)}>
+    <div className={cn('grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4', className)}>
       {cards.map((c) => (
         <div
           key={c.label}
-          className="relative overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+          className="relative overflow-hidden rounded-sm border border-[#1a3c5e]/12 bg-[hsl(42_38%_99%)] p-3 shadow-sm dark:border-border dark:bg-card/70"
         >
-          <div className={cn('absolute -right-2 -top-2 h-16 w-16 rounded-full bg-gradient-to-br opacity-20', c.tone)} />
+          <div className={cn('absolute -right-2 -top-2 h-16 w-16 rounded-full bg-gradient-to-br opacity-[0.18]', c.tone)} />
           <div className="relative flex items-start justify-between gap-2">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{c.label}</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums text-[#1a3c5e] dark:text-blue-300">{c.value}</p>
-              <p className="text-[10px] text-gray-400">{c.sub}</p>
+              <p className="font-clearance text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {c.label}
+              </p>
+              <p className="mt-1 font-clearance text-2xl font-semibold tabular-nums text-[#152a45] dark:text-foreground">
+                {c.value}
+              </p>
+              <p className="text-[10px] text-muted-foreground">{c.sub}</p>
             </div>
-            <div className={cn('rounded-lg bg-gradient-to-br p-2 text-white shadow-sm', c.tone)}>
+            <div className={cn('rounded-sm bg-gradient-to-br p-2 text-white shadow-sm', c.tone)}>
               <c.icon className="h-4 w-4" />
             </div>
           </div>

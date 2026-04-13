@@ -17,7 +17,11 @@ const TABS: { key: MyClearanceFilter; label: string; countKey: keyof MyClearance
 
 export function MyClearanceFilterTabs({ filter, onFilterChange, stats }: MyClearanceFilterTabsProps) {
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter clearance steps">
+    <div
+      className="flex w-full max-w-full flex-wrap gap-2 lg:w-auto lg:justify-end"
+      role="tablist"
+      aria-label="Filter clearance steps"
+    >
       {TABS.map(({ key, label, countKey }) => (
         <button
           key={key}
@@ -26,10 +30,10 @@ export function MyClearanceFilterTabs({ filter, onFilterChange, stats }: MyClear
           aria-selected={filter === key}
           onClick={() => onFilterChange(key)}
           className={cn(
-            'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+            'rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors',
             filter === key
-              ? 'bg-[#1a3c5e] text-white dark:bg-blue-600'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+              ? 'border-[#1a3c5e] bg-[#1a3c5e] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600'
+              : 'border-transparent bg-[hsl(42_25%_96%)] text-muted-foreground hover:border-[#1a3c5e]/20 hover:bg-[hsl(42_30%_94%)] dark:bg-muted/50 dark:hover:bg-muted'
           )}
         >
           {label} {stats[countKey]}

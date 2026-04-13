@@ -8,11 +8,12 @@ import {
   PartyPopper,
   Printer,
   Info,
-  ClipboardCheck,
   Loader2,
   CalendarClock,
   AlertTriangle,
+  ScrollText,
 } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
@@ -67,8 +68,14 @@ const ADMIN_COLUMNS = [
   { key: 'remarks', label: 'Remarks' },
 ];
 
+function formatClearanceRef(id: string | null) {
+  if (!id) return '—';
+  return id.length > 18 ? `${id.slice(0, 14)}…` : id;
+}
+
 export default function MyClearancePage() {
   const { user } = useAuth();
+  const { data: session } = useSession();
   const {
     loading,
     rows,
@@ -92,6 +99,11 @@ export default function MyClearancePage() {
   const [noteRow, setNoteRow] = useState<UiStepRow | null>(null);
 
   const activeRequestId = draftRequestId ?? completedRequestId;
+  const studentDisplayName =
+    session?.user?.name?.trim() ||
+    (session?.user as { email?: string } | undefined)?.email?.trim() ||
+    user?.email ||
+    'Student';
 
   const TODAY = new Date();
   const periodMeta = clearancePeriodMeta(clearancePeriod, TODAY);
@@ -295,57 +307,107 @@ export default function MyClearancePage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
         <Loader2 className="h-10 w-10 animate-spin text-[#1a3c5e] dark:text-blue-400" />
+        <p className="font-clearance text-sm text-muted-foreground">Preparing your clearance form…</p>
       </div>
     );
   }
 
   if (!rows.length) {
     return (
-      <div className="ec-my-clearance space-y-6">
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-900">
-          <ClipboardCheck className="mx-auto mb-4 h-10 w-10 text-gray-300 dark:text-gray-600" />
-          <h2 className="text-lg font-semibold text-[#1a3c5e] dark:text-blue-400">No clearance steps assigned</h2>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Contact your administrator to assign signatories to your account.
-          </p>
+      <div className="ec-my-clearance w-full">
+        <div className="ec-clearance-paper ec-clearance-grid overflow-hidden text-center">
+          <div className="border-b border-[#1a3c5e]/10 bg-[hsl(42_30%_97%)] px-8 py-10 dark:border-border dark:bg-card/80">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#1a3c5e]/20 bg-white shadow-inner dark:border-blue-500/30 dark:bg-background">
+              <ScrollText className="h-8 w-8 text-[#1a3c5e]/70 dark:text-blue-400/90" />
+            </div>
+            <h2 className="font-clearance mt-5 text-2xl font-semibold tracking-tight text-[#152a45] dark:text-foreground">
+              No clearance program assigned
+            </h2>
+            <p className="mt-3 max-w-md mx-auto text-sm leading-relaxed text-muted-foreground">
+              Your account is not yet linked to an official clearance checklist. Please contact the Registrar or your
+              program office to assign signatories.
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="ec-my-clearance space-y-6 animate-ec-page-enter">
+    <div className="ec-my-clearance w-full space-y-6 animate-ec-page-enter">
       <ClearanceConfettiBurst active={celebrate} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1a3c5e]/10 pb-5 print:hidden dark:border-border">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1a3c5e] dark:text-blue-400">My Clearance</h1>
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-            Submit and track each office on your clearance path.
+          <p className="font-clearance text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+            Digital clearance
+          </p>
+          <h1 className="mt-1 font-clearance text-2xl font-semibold tracking-tight text-[#152a45] dark:text-foreground">
+            My clearance
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Your official exit clearance form below. Use Calendar or Report for planning; print when every office is
+            approved.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25">
+          <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25 bg-background/80 backdrop-blur-sm">
             <Link to="/dashboard/clearances/calendar">Calendar</Link>
           </Button>
-          <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25">
+          <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25 bg-background/80 backdrop-blur-sm">
             <Link to="/dashboard/clearances/report">Report</Link>
           </Button>
           {allCleared && (
             <Button
               type="button"
               onClick={() => window.print()}
-              className="bg-emerald-600 hover:bg-emerald-700"
+              className="bg-emerald-700 shadow-sm hover:bg-emerald-800"
             >
               <Printer className="mr-2 h-4 w-4" />
-              Print
+              Print summary
             </Button>
           )}
         </div>
       </div>
 
+      <div className="w-full">
+        <div className="ec-clearance-paper ec-clearance-grid overflow-hidden print:shadow-none">
+          <header className="relative border-b-2 border-[#1a3c5e]/12 bg-gradient-to-b from-[hsl(42_35%_99%)] to-[hsl(42_28%_96%)] px-6 py-8 text-center sm:px-10 dark:border-border dark:from-card dark:to-card/95 print:border-b print:bg-white">
+            <div className="pointer-events-none absolute right-4 top-4 opacity-[0.06] dark:opacity-[0.08] print:hidden">
+              <ScrollText className="h-24 w-24 text-[#1a3c5e] dark:text-blue-500/40" aria-hidden />
+            </div>
+            <p className="font-clearance text-[0.65rem] font-semibold uppercase tracking-[0.38em] text-[#1a3c5e]/75 dark:text-blue-300/85">
+              Office of the Registrar
+            </p>
+            <h2 className="font-clearance mt-3 text-[1.7rem] font-semibold leading-tight tracking-tight text-[#142a44] dark:text-foreground sm:text-[2rem] print:text-2xl">
+              Student Exit Clearance
+            </h2>
+            <p className="mt-2 font-clearance text-sm italic text-muted-foreground">
+              Official checklist — sign-offs are recorded in order of required offices
+            </p>
+            <dl className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-4 border-y border-[#1a3c5e]/10 py-4 text-xs sm:grid-cols-3 dark:border-border print:border-y print:border-foreground/20">
+              <div className="sm:text-center">
+                <dt className="font-clearance font-medium uppercase tracking-[0.2em] text-muted-foreground">Student</dt>
+                <dd className="mt-1.5 text-sm font-medium text-foreground">{studentDisplayName}</dd>
+              </div>
+              <div className="sm:text-center">
+                <dt className="font-clearance font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                  Reference no.
+                </dt>
+                <dd className="mt-1.5 font-mono text-sm text-foreground">{formatClearanceRef(activeRequestId)}</dd>
+              </div>
+              <div className="sm:text-center">
+                <dt className="font-clearance font-medium uppercase tracking-[0.2em] text-muted-foreground">Date</dt>
+                <dd className="mt-1.5 tabular-nums text-sm text-foreground">
+                  {TODAY.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                </dd>
+              </div>
+            </dl>
+          </header>
+
+          <div className="space-y-6 px-4 py-6 sm:px-7 sm:py-7 md:px-10 md:py-9">
       <div
         className={cn(
           'flex items-center gap-4 rounded-xl border px-5 py-4 print:hidden',
@@ -454,65 +516,76 @@ export default function MyClearancePage() {
       </div>
 
       {allCleared && (
-        <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-5 py-4 dark:border-emerald-800 dark:from-emerald-900/20 dark:to-green-900/20 print:border-emerald-300">
-          <div className="shrink-0 rounded-full bg-emerald-100 p-2 dark:bg-emerald-800">
-            <PartyPopper className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+        <div className="flex items-center gap-4 rounded-sm border-2 border-emerald-600/25 bg-gradient-to-r from-emerald-50/95 to-[hsl(42_40%_98%)] px-5 py-4 shadow-sm dark:border-emerald-700/40 dark:from-emerald-950/40 dark:to-card print:border-emerald-800">
+          <div className="shrink-0 rounded-full border border-emerald-200 bg-emerald-100 p-2.5 dark:border-emerald-800 dark:bg-emerald-900/50">
+            <PartyPopper className="h-6 w-6 text-emerald-700 dark:text-emerald-400" />
           </div>
           <div>
-            <p className="text-sm text-emerald-800 dark:text-emerald-300">
-              All clearances approved. You may print your summary for the Registrar.
+            <p className="font-clearance text-sm font-medium text-emerald-900 dark:text-emerald-200">
+              Clearance complete
+            </p>
+            <p className="mt-0.5 text-sm text-emerald-800/90 dark:text-emerald-300/95">
+              All required offices have approved your request. Print this summary for the Registrar and your records.
             </p>
           </div>
         </div>
       )}
 
       {readonlyCompleted && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-900/20 dark:text-blue-200 print:hidden">
-          This clearance is complete. To start another cycle, your administrator must allow multiple active requests in
-          Settings.
+        <div className="rounded-sm border border-blue-200/80 bg-blue-50/90 px-4 py-3 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100 print:hidden">
+          <span className="font-medium">Cycle closed.</span> To begin another clearance, your administrator must allow
+          multiple active requests in System Settings.
         </div>
       )}
 
-      <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900 print:hidden">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Overall progress</p>
-            <p className="text-2xl font-bold tabular-nums text-[#1a3c5e] dark:text-blue-400">{progressPercent}%</p>
+      <div className="space-y-4 rounded-sm border border-[#1a3c5e]/15 bg-[hsl(42_40%_99%)] p-5 shadow-sm dark:border-border dark:bg-card/80 print:hidden">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+          <div className="shrink-0">
+            <p className="font-clearance text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Overall progress
+            </p>
+            <p className="mt-1 font-clearance text-3xl font-semibold tabular-nums tracking-tight text-[#152a45] dark:text-foreground">
+              {progressPercent}%
+            </p>
           </div>
-          <MyClearanceFilterTabs filter={filter} onFilterChange={setFilter} stats={stats} />
+          <div className="min-w-0 flex-1 lg:flex lg:justify-end">
+            <MyClearanceFilterTabs filter={filter} onFilterChange={setFilter} stats={stats} />
+          </div>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+        <div className="h-2.5 overflow-hidden rounded-full border border-[#1a3c5e]/10 bg-[hsl(42_25%_92%)] dark:border-border dark:bg-muted">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#1a3c5e] to-emerald-500 transition-all duration-500 dark:from-blue-600"
+            className="h-full rounded-full bg-gradient-to-r from-[#1a3c5e] via-[#1e4970] to-emerald-600 transition-all duration-500 dark:from-blue-700 dark:via-blue-600 dark:to-emerald-600"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
         {operationalRows.length > 0 && <MyClearanceStatusCards operational={operationalStats} />}
       </div>
 
-      <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-4 dark:border-blue-800 dark:from-blue-900/20 dark:to-indigo-900/20 print:hidden">
-        <div className="mt-0.5 shrink-0 rounded-full bg-blue-100 p-1 dark:bg-blue-900/40">
-          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+      <div className="flex items-start gap-3 rounded-sm border border-[#1a3c5e]/12 bg-[hsl(210_35%_97%)] px-5 py-4 dark:border-blue-900/40 dark:bg-blue-950/25 print:hidden">
+        <div className="mt-0.5 shrink-0 rounded-full border border-blue-200/80 bg-white p-1.5 dark:border-blue-800 dark:bg-blue-900/50">
+          <Info className="h-4 w-4 text-[#1a3c5e] dark:text-blue-400" />
         </div>
-        <p className="text-sm text-gray-700 dark:text-gray-300">
-          Complete each step in order where marked. Administrative sign-offs unlock after all operational offices are
-          approved.
+        <p className="text-sm leading-relaxed text-foreground/85">
+          <span className="font-medium text-foreground">Instructions.</span> Complete operational offices as listed.
+          Administrative signatures become available only after every operational step is approved.
         </p>
       </div>
 
       {operationalRows.length > 0 && (
         <section>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1a3c5e]/10 pb-3 dark:border-border">
             <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-gradient-to-br from-[#1a3c5e] to-blue-500 p-2 shadow-sm dark:from-blue-600 dark:to-blue-400">
+              <div className="rounded-sm border border-[#1a3c5e]/20 bg-gradient-to-br from-[#1a3c5e] to-[#234a72] p-2.5 shadow-sm dark:from-blue-700 dark:to-blue-600">
                 <Building2 className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-[#1a3c5e] dark:text-blue-400">Operational offices</h2>
-                <p className="text-xs text-gray-400 dark:text-gray-500">Step 1 — campus units</p>
+                <h2 className="font-clearance text-lg font-semibold tracking-tight text-[#152a45] dark:text-foreground">
+                  Part I — Operational offices
+                </h2>
+                <p className="text-xs text-muted-foreground">Campus units (may be completed in parallel where shown)</p>
               </div>
             </div>
-            <span className="rounded-md bg-gray-100 px-2 py-1 text-[10px] text-gray-500 dark:bg-gray-800">
+            <span className="rounded-sm border border-[#1a3c5e]/15 bg-[hsl(42_30%_97%)] px-2.5 py-1 font-mono text-[10px] tabular-nums text-muted-foreground dark:border-border dark:bg-muted/50">
               {operationalRows.filter((r) => r.uiStatus === 'Approved').length}/{operationalRows.length} cleared
             </span>
           </div>
@@ -558,35 +631,35 @@ export default function MyClearancePage() {
 
       {adminRows.length > 0 && (
         <section>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1a3c5e]/10 pb-3 dark:border-border">
             <div className="flex items-center gap-3">
               <div
                 className={cn(
-                  'rounded-xl p-2 shadow-sm',
+                  'rounded-sm border p-2.5 shadow-sm',
                   allOperationalApproved
-                    ? 'bg-gradient-to-br from-indigo-600 to-purple-500 dark:from-indigo-500 dark:to-purple-400'
-                    : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                    ? 'border-indigo-300/50 bg-gradient-to-br from-indigo-600 to-violet-600 dark:border-indigo-500/30 dark:from-indigo-600 dark:to-violet-600'
+                    : 'border-gray-300/60 bg-gradient-to-br from-gray-400 to-gray-500 dark:border-gray-600'
                 )}
               >
                 {allOperationalApproved ? (
                   <Users className="h-5 w-5 text-white" />
                 ) : (
-                  <Lock className="h-5 w-5 text-white/80" />
+                  <Lock className="h-5 w-5 text-white/85" />
                 )}
               </div>
               <div>
                 <h2
                   className={cn(
-                    'text-lg font-semibold',
-                    allOperationalApproved ? 'text-[#1a3c5e] dark:text-blue-400' : 'text-gray-400'
+                    'font-clearance text-lg font-semibold tracking-tight',
+                    allOperationalApproved ? 'text-[#152a45] dark:text-foreground' : 'text-muted-foreground'
                   )}
                 >
-                  Administrative officials
+                  Part II — Administrative officials
                 </h2>
-                <p className="text-xs text-gray-400 dark:text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   {allOperationalApproved
-                    ? 'Sequential sign-off (one at a time)'
-                    : 'Complete all operational offices first'}
+                    ? 'Sequential sign-off required (one office at a time)'
+                    : 'Locked until all Part I offices are approved'}
                 </p>
               </div>
             </div>
@@ -613,6 +686,10 @@ export default function MyClearancePage() {
           />
         </section>
       )}
+
+          </div>
+        </div>
+      </div>
 
       <AlertDialog open={batchConfirmOpen} onOpenChange={setBatchConfirmOpen}>
         <AlertDialogContent>
