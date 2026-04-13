@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { modelCreatedAtOrNull } from '@/server/prismaDateCompat';
 
 function requireSuperadmin(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
@@ -31,7 +32,7 @@ export async function GET() {
       email: r.signatory.email,
       is_active: r.signatory.isActive,
       user_id: r.signatory.userId,
-      created_at: r.signatory.createdAt,
+      created_at: modelCreatedAtOrNull(r.signatory as object)?.toISOString() ?? null,
     },
   }));
 

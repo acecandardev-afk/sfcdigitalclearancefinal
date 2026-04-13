@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/server/db';
+import { clearanceSignatureActivityDate } from '@/server/prismaDateCompat';
 import { parseRequirements } from '@/components/clearance/my-clearance/myClearanceTypes';
 
 function mapDbStatusToUi(
@@ -56,7 +57,7 @@ export async function GET() {
       remarks: string | null;
       notes: string | null;
       signedAt: Date | null;
-      createdAt: Date;
+      createdAt: Date | null;
     }
   >();
 
@@ -71,7 +72,7 @@ export async function GET() {
         remarks: s.remarks,
         notes: s.notes,
         signedAt: s.signedAt,
-        createdAt: s.createdAt,
+        createdAt: clearanceSignatureActivityDate(s),
       })
     );
   }
