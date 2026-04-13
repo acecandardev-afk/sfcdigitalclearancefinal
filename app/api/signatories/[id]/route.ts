@@ -52,6 +52,12 @@ export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
   }
 
   const id = ctx.params.id;
+  const existing = await prisma.signatory.findUnique({ where: { id } });
+  if (existing?.userId) {
+    await prisma.userRole.deleteMany({
+      where: { userId: existing.userId, role: 'signatory' as any },
+    });
+  }
   await prisma.signatory.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

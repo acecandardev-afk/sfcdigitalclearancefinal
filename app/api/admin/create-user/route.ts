@@ -9,6 +9,10 @@ const BodySchema = z.object({
   password: z.string().min(6).max(72),
   full_name: z.string().min(1).max(200),
   role: z.enum(['student', 'signatory', 'superadmin']),
+  student_id: z.string().max(100).optional(),
+  year_level: z.string().max(50).optional(),
+  course: z.string().max(200).optional(),
+  signatory_id: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -24,7 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { email, password, full_name, role } = parsed.data;
+  const { email, password, full_name, role, student_id, year_level, course, signatory_id } = parsed.data;
   const passwordHash = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
@@ -35,6 +39,9 @@ export async function POST(req: Request) {
         create: {
           email: email.toLowerCase(),
           fullName: full_name,
+          ...(student_id ? { studentId: student_id } : {}),
+          ...(year_level ? { yearLevel: year_level } : {}),
+          ...(course ? { course } : {}),
         },
       },
       roles: {
@@ -42,6 +49,13 @@ export async function POST(req: Request) {
       },
     },
   });
+
+  if (role === 'signatory' && signatory_id) {
+    await prisma.signatory.update({
+      where: { id: signatory_id },
+      data: { userId: user.id },
+    });
+  }
 
   return NextResponse.json({ id: user.id, email: user.email });
 }

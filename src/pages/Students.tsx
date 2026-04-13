@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/integrations/supabase/client';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -39,8 +38,6 @@ import {
   UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { edgeFunctionInvokeErrorDetail } from '@/lib/edgeFunctionError';
-import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 
 interface StudentProfile {
   id: string;
@@ -133,55 +130,28 @@ export default function Students() {
 
   const fetchStudents = async () => {
     try {
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('role', 'student');
-
-      if (roleError) throw roleError;
-      const userIds = (roleData || []).map((r) => r.user_id);
-      if (userIds.length === 0) {
-        setStudents([]);
-        setTotalActiveCount(0);
-        setArchivedCount(0);
-        setLoading(false);
-        return;
-      }
-
-      const sb: typeof supabase & { from: (table: string) => any } = supabase as any;
-      let query = sb
-        .from('profiles')
-        .select('id, full_name, email, student_id, year_level, course, is_archived')
-        .in('id', userIds)
-        .order('full_name');
-
-      if (showArchived) {
-        query = (query as any).eq('is_archived', true);
-      } else {
-        query = (query as any).or('is_archived.eq.false,is_archived.is.null');
-      }
-
-      const [profilesResult, activeRes, archivedRes] = await Promise.all([
-        query,
-        (supabase as any)
-          .from('profiles')
-          .select('id', { count: 'exact', head: true })
-          .in('id', userIds)
-          .or('is_archived.eq.false,is_archived.is.null'),
-        (supabase as any)
-          .from('profiles')
-          .select('id', { count: 'exact', head: true })
-          .in('id', userIds)
-          .eq('is_archived', true),
-      ]);
-
-      const { data: profiles, error: profilesError } = await (profilesResult as any);
-      if (profilesError) throw profilesError;
-
-      const list = (profiles || []) as unknown as StudentProfile[];
+      const res = await fetch(`/api/students?archived=${showArchived ? '1' : '0'}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to load students');
+      const json = await res.json();
+      const list = ((json.students || []) as any[]).map((s) => ({
+        id: String(s.id),
+        full_name: String(s.full_name ?? ''),
+        email: (s.email ?? null) as string | null,
+        student_id: (s.student_id ?? null) as string | null,
+        year_level: (s.year_level ?? null) as string | null,
+        course: (s.course ?? null) as string | null,
+        is_archived: Boolean(s.is_archived ?? false),
+      }));
       setStudents(list);
-      setTotalActiveCount(activeRes.count ?? 0);
-      setArchivedCount(archivedRes.count ?? 0);
+
+      // Simple counts derived from current list. Accurate totals can be added later via API if needed.
+      if (showArchived) {
+        setArchivedCount(list.length);
+      } else {
+        setTotalActiveCount(list.length);
+      }
     } catch (error) {
       console.error('Error fetching students:', error);
       toast.error('Failed to load students');
@@ -216,24 +186,29 @@ export default function Students() {
   const onCreateSubmit = async (data: CreateFormData) => {
     setFormLoading(true);
     try {
-      const { data: result, error } = await invokeAuthenticatedFunction('create-student-account', {
-        email: data.email,
-        password: data.password,
-        full_name: data.full_name,
-        student_id: data.student_id || undefined,
-        year_level: data.year_level || undefined,
-        course: data.course || undefined,
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          full_name: data.full_name,
+          role: 'student',
+          student_id: data.student_id || undefined,
+          year_level: data.year_level || undefined,
+          course: data.course || undefined,
+        }),
       });
-
-      if (error) throw error;
-      if (result?.error) throw new Error(result.error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create student');
 
       toast.success('Student account created. They can now sign in.');
       setCreateDialogOpen(false);
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error creating student:', err);
-      toast.error(await edgeFunctionInvokeErrorDetail(err, 'create-student-account'));
+      toast.error(safeActionErrorMessage(err, 'Failed to create student'));
     } finally {
       setFormLoading(false);
     }
@@ -243,17 +218,18 @@ export default function Students() {
     if (!editingStudent) return;
     setFormLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
+      const res = await fetch(`/api/students/${editingStudent.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           full_name: data.full_name,
           student_id: data.student_id || null,
           year_level: data.year_level || null,
           course: data.course || null,
-        } as any)
-        .eq('id', editingStudent.id);
-
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update student');
       toast.success('Student updated successfully');
       setEditDialogOpen(false);
       setEditingStudent(null);
@@ -268,13 +244,13 @@ export default function Students() {
 
   const toggleArchive = async (student: StudentProfile, archive: boolean) => {
     try {
-      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb2
-        .from('profiles')
-        .update({ is_archived: archive } as any)
-        .eq('id', student.id);
-
-      if (error) throw error;
+      const res = await fetch(`/api/students/${student.id}/archive`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archive }),
+      });
+      if (!res.ok) throw new Error('Could not update archive status');
       toast.success(archive ? 'Student archived' : 'Student restored');
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -291,13 +267,15 @@ export default function Students() {
   const bulkArchive = async () => {
     if (selectedIds.size === 0) return;
     try {
-      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb2
-        .from('profiles')
-        .update({ is_archived: true } as any)
-        .in('id', Array.from(selectedIds));
-
-      if (error) throw error;
+      for (const id of Array.from(selectedIds)) {
+        const res = await fetch(`/api/students/${id}/archive`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archive: true }),
+        });
+        if (!res.ok) throw new Error('Failed to archive');
+      }
       toast.success(`${selectedIds.size} student(s) archived`);
       setSelectedIds(new Set());
       fetchStudents();
@@ -310,13 +288,15 @@ export default function Students() {
   const bulkRestore = async () => {
     if (selectedIds.size === 0) return;
     try {
-      const sb2: typeof supabase & { from: (table: string) => any } = supabase as any;
-      const { error } = await sb2
-        .from('profiles')
-        .update({ is_archived: false } as any)
-        .in('id', Array.from(selectedIds));
-
-      if (error) throw error;
+      for (const id of Array.from(selectedIds)) {
+        const res = await fetch(`/api/students/${id}/archive`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archive: false }),
+        });
+        if (!res.ok) throw new Error('Failed to restore');
+      }
       toast.success(`${selectedIds.size} student(s) restored`);
       setSelectedIds(new Set());
       fetchStudents();

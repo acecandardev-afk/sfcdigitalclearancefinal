@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -32,8 +31,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Pencil, Trash2, Loader2, Users, Search, UserPlus, KeyRound, ListOrdered, ChevronUp, ChevronDown, UserPlus2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { edgeFunctionInvokeErrorDetail } from '@/lib/edgeFunctionError';
-import { invokeAuthenticatedFunction } from '@/lib/supabaseInvoke';
 
 interface Signatory {
   id: string;
@@ -44,6 +41,19 @@ interface Signatory {
   is_active: boolean;
   user_id: string | null;
   created_at: string;
+}
+
+function apiSignatoryToUi(s: any): Signatory {
+  return {
+    id: String(s.id),
+    name: String(s.name ?? ''),
+    position: String(s.position ?? ''),
+    department: String(s.department ?? ''),
+    email: String(s.email ?? ''),
+    is_active: Boolean(s.is_active ?? s.isActive ?? false),
+    user_id: (s.user_id ?? s.userId ?? null) as string | null,
+    created_at: String(s.created_at ?? s.createdAt ?? ''),
+  };
 }
 
 const signatorySchema = z.object({
@@ -108,21 +118,10 @@ export default function Signatories() {
 
   const fetchDefaultSignatories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('clearance_default_signatories')
-        .select('id, signatory_id, sequence_order, signatories(id, name, position, department, email, is_active, user_id, created_at)')
-        .order('sequence_order', { ascending: true });
-      if (error) throw error;
-      const rows = (data as any[] | null | undefined) ?? [];
-      const list = rows
-        .filter((row) => row?.signatories)
-        .map((row) => ({
-          id: String(row.id),
-          signatory_id: String(row.signatory_id),
-          sequence_order: Number(row.sequence_order),
-          signatory: row.signatories as Signatory,
-        }));
-      setDefaultSignatories(list);
+      const res = await fetch('/api/default-signatories', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load default signatory order');
+      const json = await res.json();
+      setDefaultSignatories((json.defaultSignatories || []) as any);
     } catch (error) {
       console.error('Error fetching default signatories:', error);
       toast.error('Failed to load default signatory order');
@@ -131,14 +130,10 @@ export default function Signatories() {
 
   const fetchSignatories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('signatories')
-        .select('*')
-        .order('department')
-        .order('name');
-
-      if (error) throw error;
-      setSignatories(data || []);
+      const res = await fetch('/api/signatories', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load signatories');
+      const json = await res.json();
+      setSignatories(((json.signatories || []) as any[]).map(apiSignatoryToUi));
     } catch (error) {
       console.error('Error fetching signatories:', error);
       toast.error('Failed to load signatories');
@@ -185,31 +180,34 @@ export default function Signatories() {
 
     try {
       if (selectedSignatory) {
-        const { error } = await supabase
-          .from('signatories')
-          .update({
+        const res = await fetch(`/api/signatories/${selectedSignatory.id}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name: data.name,
             position: data.position,
             department: data.department,
             email: data.email,
-          })
-          .eq('id', selectedSignatory.id);
-
-        if (error) throw error;
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to update signatory');
         toast.success('Signatory updated successfully');
       } else {
-        const { error } = await supabase
-          .from('signatories')
-          .insert([{
+        const res = await fetch('/api/signatories', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name: data.name,
             position: data.position,
             department: data.department,
             email: data.email,
             is_active: true,
             signatory_group: 'standard',
-          }]);
-
-        if (error) throw error;
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to add signatory');
         toast.success('Signatory added successfully');
       }
 
@@ -229,29 +227,28 @@ export default function Signatories() {
     setFormLoading(true);
 
     try {
-      const { data: result, error } = await invokeAuthenticatedFunction('create-signatory-account', {
-        signatory_id: selectedSignatory.id,
-        email: selectedSignatory.email,
-        password: data.password,
-        full_name: selectedSignatory.name,
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: selectedSignatory.email,
+          password: data.password,
+          full_name: selectedSignatory.name,
+          role: 'signatory',
+          signatory_id: selectedSignatory.id,
+        }),
       });
 
-      if (error) throw error;
-      if (result?.error) throw new Error(result.error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create account');
 
       toast.success('Account created successfully! The signatory can now login.');
       setAccountDialogOpen(false);
       fetchSignatories();
     } catch (error: unknown) {
       console.error('Error creating account:', error);
-      const detail = await edgeFunctionInvokeErrorDetail(error, 'create-signatory-account');
-      if (detail.trim().toLowerCase() === 'invalid jwt') {
-        toast.error(
-          'Invalid JWT. This usually means your admin session belongs to a different Supabase project than your current VITE_SUPABASE_URL/keys. Sign out, hard refresh, sign in again, and confirm VITE_SUPABASE_URL matches your project-ref (e.g. https://dzhwxlwjaccasitkarhm.supabase.co) and VITE_SUPABASE_ANON_KEY is from the same project.'
-        );
-        return;
-      }
-      toast.error(detail);
+      toast.error('Failed to create account');
     } finally {
       setFormLoading(false);
     }
@@ -261,26 +258,11 @@ export default function Signatories() {
     if (!selectedSignatory) return;
 
     try {
-      // If signatory had a login account, revoke their access so they can no longer sign in as signatory
-      if (selectedSignatory.user_id) {
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .delete()
-          .eq('user_id', selectedSignatory.user_id)
-          .eq('role', 'signatory');
-
-        if (roleError) {
-          console.error('Error revoking signatory role:', roleError);
-          toast.error('Failed to revoke access. Signatory record will still be removed.');
-        }
-      }
-
-      const { error } = await supabase
-        .from('signatories')
-        .delete()
-        .eq('id', selectedSignatory.id);
-
-      if (error) throw error;
+      const res = await fetch(`/api/signatories/${selectedSignatory.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to remove signatory');
       toast.success('Signatory removed successfully');
       setDeleteDialogOpen(false);
       fetchSignatories();
@@ -292,12 +274,13 @@ export default function Signatories() {
 
   const toggleStatus = async (signatory: Signatory) => {
     try {
-      const { error } = await supabase
-        .from('signatories')
-        .update({ is_active: !signatory.is_active })
-        .eq('id', signatory.id);
-
-      if (error) throw error;
+      const res = await fetch(`/api/signatories/${signatory.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !signatory.is_active }),
+      });
+      if (!res.ok) throw new Error('Failed to update status');
       toast.success(`Signatory ${signatory.is_active ? 'deactivated' : 'activated'}`);
       fetchSignatories();
     } catch (error) {
@@ -307,14 +290,15 @@ export default function Signatories() {
   };
 
   const addToDefaultOrder = async (signatory: Signatory) => {
-    const nextOrder = defaultSignatories.length === 0 ? 1 : Math.max(...defaultSignatories.map((d) => d.sequence_order)) + 1;
     setDefaultOrderLoading(true);
     try {
-      const { error } = await supabase.from('clearance_default_signatories').insert({
-        signatory_id: signatory.id,
-        sequence_order: nextOrder,
+      const res = await fetch('/api/default-signatories', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signatory_id: signatory.id }),
       });
-      if (error) throw error;
+      if (!res.ok) throw new Error('Failed to add signatory to order');
       toast.success(`${signatory.name} added to default request order`);
       setAddDefaultDialogOpen(false);
       fetchDefaultSignatories();
@@ -329,8 +313,11 @@ export default function Signatories() {
   const removeFromDefaultOrder = async (rowId: string) => {
     setDefaultOrderLoading(true);
     try {
-      const { error } = await supabase.from('clearance_default_signatories').delete().eq('id', rowId);
-      if (error) throw error;
+      const res = await fetch(`/api/default-signatories/${rowId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to remove');
       toast.success('Removed from default order');
       fetchDefaultSignatories();
     } catch (error) {
@@ -348,8 +335,20 @@ export default function Signatories() {
     [list[index].sequence_order, list[swap].sequence_order] = [list[swap].sequence_order, list[index].sequence_order];
     setDefaultOrderLoading(true);
     try {
-      await supabase.from('clearance_default_signatories').update({ sequence_order: list[index].sequence_order }).eq('id', list[index].id);
-      await supabase.from('clearance_default_signatories').update({ sequence_order: list[swap].sequence_order }).eq('id', list[swap].id);
+      const r1 = await fetch(`/api/default-signatories/${list[index].id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence_order: list[index].sequence_order }),
+      });
+      if (!r1.ok) throw new Error('Failed to update order');
+      const r2 = await fetch(`/api/default-signatories/${list[swap].id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence_order: list[swap].sequence_order }),
+      });
+      if (!r2.ok) throw new Error('Failed to update order');
       toast.success('Order updated');
       fetchDefaultSignatories();
     } catch (error) {
