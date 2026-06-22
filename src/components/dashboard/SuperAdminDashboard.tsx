@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { INSTITUTION_NAME } from '@/constants/institutionBranding';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,10 +35,15 @@ import {
   UserX,
   Calendar,
   BarChart3,
+  Bell,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 import { format, subDays } from 'date-fns';
 import { TERMS, getStatusLabel } from '@/lib/terms';
+import { useUserRole } from '@/hooks/useUserRole';
+import { isInstitutionalElevatedAdmin, isStudentClearanceElevatedAdmin } from '@/lib/permissionsMatrix';
 
 interface DashboardStats {
   totalStudents: number;
@@ -90,6 +96,7 @@ interface DayData {
 
 export default function SuperAdminDashboard() {
   const navigate = useNavigate();
+  const { roles, isSignatory } = useUserRole();
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
     totalSignatories: 0,
@@ -117,7 +124,7 @@ export default function SuperAdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       const res = await fetch('/api/dashboard/superadmin', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load dashboard data');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load dashboard data.'));
       const json = await res.json();
 
       setStats(json.stats);
@@ -127,7 +134,7 @@ export default function SuperAdminDashboard() {
       setProgressionData(json.progressionData || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      toast.error('Failed to load dashboard data');
+      toast.error(safeActionErrorMessage(error, 'Could not load dashboard data.'));
     } finally {
       setLoading(false);
     }
@@ -183,7 +190,22 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  const signingDutyActions: { label: string; icon: typeof Bell; path: string }[] = [];
+  if (isSignatory() && isStudentClearanceElevatedAdmin(roles)) {
+    signingDutyActions.push(
+      { label: 'Student clearance — To sign', icon: Bell, path: '/dashboard/requests' },
+      { label: 'Student clearance — Signed history', icon: CheckCircle, path: '/dashboard/approved' }
+    );
+  }
+  if (isSignatory() && isInstitutionalElevatedAdmin(roles)) {
+    signingDutyActions.push(
+      { label: 'Institutional — Pending signatures', icon: Bell, path: '/dashboard/institutional/pending' },
+      { label: 'Institutional — Signing history', icon: FileText, path: '/dashboard/institutional/signed' }
+    );
+  }
+
   const quickActions = [
+    ...signingDutyActions,
     { label: 'Create Student Account', icon: UserPlus, path: '/dashboard/students' },
     { label: 'Reports & export', icon: BarChart3, path: '/dashboard/reports' },
     { label: TERMS.ADD_SIGNATORY, icon: Plus, path: '/dashboard/signatories' },
@@ -209,7 +231,7 @@ export default function SuperAdminDashboard() {
             Administrator Dashboard
           </h1>
           <p className="text-muted-foreground mt-1 text-base">
-            Overview of the Digital Clearance System for Saint Francis College — Guihulngan
+            Overview of the Digital Clearance System for {INSTITUTION_NAME}
           </p>
         </div>
         <Button

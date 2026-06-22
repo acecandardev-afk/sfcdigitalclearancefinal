@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { Prisma } from '@prisma/client';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { modelCreatedAtOrNull } from '@/server/prismaDateCompat';
+import { canManageDefaultSignatories } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: unknown) {
+function requireDefaultSigAdmin(session: unknown) {
   const s = session as { user?: { roles?: string[] } } | null;
   const roles = (s?.user?.roles ?? []) as string[];
-  return Boolean(s?.user && roles.includes('superadmin'));
+  return Boolean(s?.user && canManageDefaultSignatories(roles));
 }
 
 function mapDefaultRows(
@@ -37,7 +39,7 @@ function mapDefaultRows(
 
 export async function GET() {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireDefaultSigAdmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -61,7 +63,7 @@ const ReorderSchema = z.object({
 
 export async function POST(req: Request) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireDefaultSigAdmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -80,7 +82,7 @@ export async function POST(req: Request) {
     const { ids } = reorderTry.data;
 
     if (new Set(ids).size !== ids.length) {
-      return NextResponse.json({ error: 'Duplicate ids in list' }, { status: 400 });
+      return NextResponse.json({ error: 'Duplicate entries in the list. Refresh the page and try again.' }, { status: 400 });
     }
 
     try {
@@ -90,7 +92,7 @@ export async function POST(req: Request) {
 
       if (existing.length !== ids.length) {
         return NextResponse.json(
-          { error: 'ids must list each default signatory row exactly once' },
+          { error: 'The signatory order must include every default signatory exactly once. Refresh and try again.' },
           { status: 400 }
         );
       }
@@ -99,7 +101,7 @@ export async function POST(req: Request) {
       for (const id of ids) {
         if (!idSet.has(id)) {
           return NextResponse.json(
-            { error: 'ids must list each default signatory row exactly once' },
+            { error: 'The signatory order must include every default signatory exactly once. Refresh and try again.' },
             { status: 400 }
           );
         }
@@ -131,13 +133,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ defaultSignatories: mapDefaultRows(rows) });
     } catch (e) {
       console.error('[default-signatories POST reorder]', e);
-      return NextResponse.json({ error: 'Failed to reorder' }, { status: 500 });
+      return NextResponse.json({ error: 'Could not update the order. Try again.' }, { status: 500 });
     }
   }
 
   const parsed = CreateSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const { signatory_id, insert_at } = parsed.data;

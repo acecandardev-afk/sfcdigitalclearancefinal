@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { FileText, Download, Loader2, File, Image, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 
 interface ClearanceFile {
   id: string;
@@ -51,12 +53,12 @@ export default function ClearanceFilesViewer({
     setLoading(true);
     try {
       const res = await fetch(`/api/clearances/${clearanceRequestId}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load files');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load files.'));
       const json = await res.json();
       setFiles((json.files || []) as ClearanceFile[]);
     } catch (error) {
       console.error('Error fetching files:', error);
-      toast.error('Failed to load files');
+      toast.error(safeActionErrorMessage(error, 'Could not load files.'));
     } finally {
       setLoading(false);
     }

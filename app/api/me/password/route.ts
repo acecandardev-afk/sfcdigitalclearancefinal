@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -18,13 +19,13 @@ export async function POST(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const userId = (session.user as any).id as string;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !user.passwordHash) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    return NextResponse.json({ error: 'We could not find your account.' }, { status: 404 });
   }
 
   const ok = await bcrypt.compare(parsed.data.current_password, user.passwordHash);

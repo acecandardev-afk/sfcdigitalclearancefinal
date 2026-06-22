@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { resolveSignatoryForSessionUser } from '@/server/resolveSignatoryForSessionUser';
 
 function requireSignatory(session: any) {
   const roles = ((session as any)?.user?.roles ?? []) as string[];
@@ -14,12 +15,22 @@ export async function GET() {
   }
 
   const userId = (session.user as any).id as string;
-  const signatory = await prisma.signatory.findUnique({
-    where: { userId },
-    select: { id: true, name: true, position: true, department: true },
-  });
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-  if (!signatory) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const signatory = await resolveSignatoryForSessionUser(prisma, userId);
+
+  if (!signatory) {
+    return NextResponse.json(
+      {
+        error:
+          'No signatory office is linked to this account. Ask an administrator to link your login in Signatories settings.',
+        code: 'NO_SIGNATORY_ROW',
+      },
+      { status: 404 }
+    );
+  }
 
   const sigs = await prisma.clearanceSignature.findMany({
     where: {
@@ -75,7 +86,8 @@ export async function GET() {
   const mapped = sigs.map((s) => {
     const all = allByClearance.get(s.clearanceRequest.id) ?? [];
     let canSign = false;
-    if (s.status === 'pending') {
+    const isOpen = s.status === 'pending' || s.status === 'in_progress';
+    if (isOpen) {
       const isAuthority = s.signatoryGroup === 'authority' && s.authoritySequenceOrder != null;
       if (!isAuthority) {
         canSign = true;

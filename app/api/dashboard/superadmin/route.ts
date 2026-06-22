@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canViewDashboardSuperadmin } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireDashboardViewer(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canViewDashboardSuperadmin(roles));
 }
 
 function ymd(d: Date): string {
@@ -13,7 +14,7 @@ function ymd(d: Date): string {
 
 export async function GET() {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireDashboardViewer(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

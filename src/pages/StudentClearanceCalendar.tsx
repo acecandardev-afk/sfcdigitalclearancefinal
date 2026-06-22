@@ -69,7 +69,7 @@ export default function StudentClearanceCalendar() {
   return (
     <DashboardLayout>
       <div className="app-page min-h-screen w-full bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 px-4 py-6 sm:px-6 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
-        <div className="w-full max-w-5xl space-y-6">
+        <div className="w-full min-w-0 space-y-6">
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
               <Link to="/dashboard/clearances" className="gap-2">

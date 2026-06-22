@@ -6,9 +6,11 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, Clock, XCircle, Loader2, User, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage, userErrorFromApi } from '@/lib/userMessages';
+import { parseResponseJson } from '@/lib/parseResponseJson';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
 import { TERMS } from '@/lib/terms';
+import { canRequestStudentClearance } from '@/lib/permissionsMatrix';
 
 interface Signature {
   id: string;
@@ -63,8 +66,8 @@ export default function ClearanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isSuperAdmin } = useUserRole();
-  const backPath = isSuperAdmin() ? '/dashboard' : '/dashboard/clearances';
+  const { roles } = useUserRole();
+  const backPath = '/dashboard';
   const [clearance, setClearance] = useState<ClearanceDetail | null>(null);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,39 +87,44 @@ export default function ClearanceDetail() {
         navigate(backPath);
         return;
       }
-      if (!res.ok) throw new Error('Failed to load clearance details');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load clearance details.'));
       const json = await res.json();
 
       setClearance(json.clearance as ClearanceDetail);
       setSignatures((json.signatures || []) as Signature[]);
     } catch (error) {
       console.error('Error fetching clearance:', error);
-      toast.error(safeActionErrorMessage(error, 'Failed to load clearance details'));
+      toast.error(safeActionErrorMessage(error, 'Could not load clearance details.'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Check if clearance can be deleted (no non-pending signatures); only the student who owns it may delete
-  const canDelete = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
+  // Archive only while every office step is still pending; only the student who owns it may archive
+  const canArchive = signatures.length === 0 || signatures.every((s) => s.status === 'pending');
   const isOwner = !!user && !!clearance && clearance.student_id === user.id;
 
-  const handleDelete = async () => {
+  const handleArchive = async () => {
     if (!id) return;
-    
+
     setDeleting(true);
     try {
-      const res = await fetch(`/api/clearances/${id}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/clearances/${id}/archive`, {
+        method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archive: true }),
       });
-      if (!res.ok) throw new Error('Failed to delete clearance request');
+      const json = await parseResponseJson(res);
+      if (!res.ok) {
+        throw new Error(userErrorFromApi(json, 'Could not archive this request.'));
+      }
 
-      toast.success('Request deleted successfully');
+      toast.success('Request archived');
       navigate(backPath);
     } catch (error) {
-      console.error('Error deleting clearance:', error);
-      toast.error(safeActionErrorMessage(error, 'Failed to delete clearance request'));
+      console.error('Error archiving clearance:', error);
+      toast.error(safeActionErrorMessage(error, 'Could not archive this request.'));
     } finally {
       setDeleting(false);
     }
@@ -177,7 +185,7 @@ export default function ClearanceDetail() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="w-full min-w-0 space-y-6 p-6 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(backPath)}>
@@ -197,31 +205,29 @@ export default function ClearanceDetail() {
               })}
             </p>
           </div>
-          {canDelete && isOwner && (
+          {canArchive && isOwner && canRequestStudentClearance(roles) && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" disabled={deleting}>
+                <Button variant="outline" size="sm" disabled={deleting}>
                   {deleting ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
+                    <Archive className="h-4 w-4 mr-2" />
                   )}
-                  Delete
+                  Archive
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Request?</AlertDialogTitle>
+                  <AlertDialogTitle>Archive request?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete this request and all associated files. 
-                    This action cannot be undone.
+                    This hides the request from your active list. You can only archive while no office has started
+                    processing it yet.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    Delete
-                  </AlertDialogAction>
+                  <AlertDialogAction onClick={handleArchive}>Archive</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -295,14 +301,9 @@ export default function ClearanceDetail() {
                             <p className="text-sm text-muted-foreground">
                               {sig.signatory.position} • {sig.signatory.department}
                             </p>
-                            {sig.notes && (
-                              <p className="text-sm text-muted-foreground mt-1 italic">
-                                Note: "{sig.notes}"
-                              </p>
-                            )}
                             {sig.remarks && (
                               <p className="text-sm text-primary mt-1">
-                                Remarks: "{sig.remarks}"
+                                Remarks: &quot;{sig.remarks}&quot;
                               </p>
                             )}
                             {isWaiting && (

@@ -202,12 +202,15 @@ export function ClearanceStepsTable({
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return rows;
     const q = searchQuery.toLowerCase();
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      const dept = (r.department ?? '').toLowerCase();
+      return (
         r.office.toLowerCase().includes(q) ||
         r.officer.toLowerCase().includes(q) ||
+        dept.includes(q) ||
         r.uiStatus.toLowerCase().includes(q)
-    );
+      );
+    });
   }, [rows, searchQuery]);
 
   const onRequest = useCallback(

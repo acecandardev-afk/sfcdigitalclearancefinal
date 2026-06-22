@@ -27,7 +27,10 @@ export function useNotifications() {
     }
 
     try {
-      const res = await fetch('/api/me/notifications', { credentials: 'include' });
+      const res = await fetch('/api/me/notifications', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error('fetch failed');
       const json = await res.json();
       const list = (json.notifications ?? []) as Notification[];
@@ -107,9 +110,13 @@ export function useNotifications() {
       }
       return;
     }
+    /**
+     * Short polling for notification updates. For multi-instance deployments, identical behavior
+     * requires shared pub/sub (e.g. Redis) or SSE; otherwise each instance only sees its own writes.
+     */
     pollRef.current = setInterval(() => {
       void fetchNotifications();
-    }, 45000);
+    }, 12000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };

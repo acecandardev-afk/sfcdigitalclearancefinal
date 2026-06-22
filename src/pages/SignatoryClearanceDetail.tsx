@@ -32,6 +32,7 @@ import ClearanceFilesViewer from '@/components/dashboard/ClearanceFilesViewer';
 import ApprovedStamp from '@/components/clearance/ApprovedStamp';
 import { TERMS } from '@/lib/terms';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage, userErrorFromApi } from '@/lib/userMessages';
 import { logActivity } from '@/hooks/useActivityLog';
 import { Separator } from '@/components/ui/separator';
 
@@ -97,11 +98,18 @@ export default function SignatoryClearanceDetail() {
   const [canSign, setCanSign] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
-  const [notes, setNotes] = useState('');
   const [remarks, setRemarks] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
   const [studentOfficeNote, setStudentOfficeNote] = useState<string | null>(null);
+  const [pendingOffice, setPendingOffice] = useState<{ fulfillment_id: string; label: string }[]>([]);
+  const [verifiedOffice, setVerifiedOffice] = useState<
+    { fulfillment_id: string; label: string; notes: string | null; verified_at: string | null }[]
+  >([]);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState<{ fulfillment_id: string; label: string } | null>(null);
+  const [verifyNotes, setVerifyNotes] = useState('');
+  const [verifyLoading, setVerifyLoading] = useState(false);
 
   useEffect(() => {
     if (user && id) {
@@ -118,7 +126,7 @@ export default function SignatoryClearanceDetail() {
         setLoading(false);
         return;
       }
-      if (!res.ok) throw new Error('Failed to load request details');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load this request.'));
       const json = await res.json();
 
       setClearance(json.clearance as ClearanceDetail);
@@ -128,6 +136,31 @@ export default function SignatoryClearanceDetail() {
 
       const mySig = processedSignatures.find((s) => s.signatory_id === json.signatory_id);
       setMySignature(mySig || null);
+
+      const po = (json.pending_office_verifications ?? []) as {
+        signature_id: string;
+        fulfillment_id: string;
+        label: string;
+      }[];
+      const mine = mySig ? po.filter((p) => p.signature_id === mySig.id) : [];
+      setPendingOffice(mine.map((p) => ({ fulfillment_id: p.fulfillment_id, label: p.label })));
+
+      const vo = (json.verified_office_requirements ?? []) as {
+        signature_id: string;
+        fulfillment_id: string;
+        label: string;
+        notes: string | null;
+        verified_at: string | null;
+      }[];
+      const mineVerified = mySig ? vo.filter((p) => p.signature_id === mySig.id) : [];
+      setVerifiedOffice(
+        mineVerified.map((p) => ({
+          fulfillment_id: p.fulfillment_id,
+          label: p.label,
+          notes: p.notes,
+          verified_at: p.verified_at,
+        }))
+      );
 
       if (mySig && mySig.status === 'pending') {
         const isAuthority = mySig.signatory_group === 'authority' && mySig.authority_sequence_order != null;
@@ -147,7 +180,7 @@ export default function SignatoryClearanceDetail() {
       }
     } catch (error) {
       console.error('Error fetching clearance:', error);
-      toast.error(safeActionErrorMessage(error, 'Failed to load request details'));
+      toast.error(safeActionErrorMessage(error, 'Could not load this request.'));
     } finally {
       setLoading(false);
     }
@@ -155,13 +188,16 @@ export default function SignatoryClearanceDetail() {
 
   const handleAction = (type: 'approve' | 'reject') => {
     setActionType(type);
-    setNotes('');
     setRemarks('');
     setDialogOpen(true);
   };
 
   const submitAction = async () => {
     if (!mySignature || !id) return;
+    if (!remarks.trim()) {
+      toast.error('Remarks are required');
+      return;
+    }
 
     setActionLoading(true);
     try {
@@ -172,11 +208,11 @@ export default function SignatoryClearanceDetail() {
         body: JSON.stringify({
           signature_id: mySignature.id,
           action: actionType,
-          notes: notes || null,
-          remarks: remarks || null,
+          remarks: remarks.trim(),
         }),
       });
-      if (!res.ok) throw new Error('Failed to update signature');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(userErrorFromApi(json, 'Could not save your decision. Please try again.'));
 
       void logActivity({
         action: actionType === 'approve' ? 'sign_clearance' : 'reject_clearance',
@@ -197,6 +233,38 @@ export default function SignatoryClearanceDetail() {
       toast.error(safeActionErrorMessage(error, 'Could not save your decision. Please try again.'));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const openVerifyDialog = (fulfillmentId: string, label: string) => {
+    setVerifyTarget({ fulfillment_id: fulfillmentId, label });
+    setVerifyNotes('');
+    setVerifyDialogOpen(true);
+  };
+
+  const submitOfficeVerification = async () => {
+    if (!verifyTarget) return;
+    if (!verifyNotes.trim()) {
+      toast.error('Verification notes are required');
+      return;
+    }
+    setVerifyLoading(true);
+    try {
+      const res = await fetch('/api/clearance/office-requirement-verify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fulfillment_id: verifyTarget.fulfillment_id, notes: verifyNotes.trim() }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(userErrorFromApi(raw, 'Could not verify that requirement.'));
+      toast.success('Office requirement verified');
+      setVerifyDialogOpen(false);
+      void fetchClearanceDetail();
+    } catch (e) {
+      toast.error(safeActionErrorMessage(e, 'Could not verify'));
+    } finally {
+      setVerifyLoading(false);
     }
   };
 
@@ -263,7 +331,7 @@ export default function SignatoryClearanceDetail() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className="w-full min-w-0 space-y-6 p-6 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
@@ -347,6 +415,46 @@ export default function SignatoryClearanceDetail() {
                 </Button>
               </div>
 
+              {mySignature?.status === 'pending' && pendingOffice.length > 0 ? (
+                <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 space-y-3">
+                  <p className="text-sm font-medium">Office verification</p>
+                  <p className="text-xs text-muted-foreground">
+                    Confirm in-office checks before signing off.
+                  </p>
+                  <ul className="space-y-2">
+                    {pendingOffice.map((p) => (
+                      <li key={p.fulfillment_id} className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm">{p.label}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => openVerifyDialog(p.fulfillment_id, p.label)}
+                        >
+                          Mark verified
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {verifiedOffice.length > 0 ? (
+                <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 space-y-2">
+                  <p className="text-sm font-medium">Verified office requirements</p>
+                  <ul className="space-y-2 text-sm">
+                    {verifiedOffice.map((p) => (
+                      <li key={p.fulfillment_id}>
+                        <p className="font-medium">{p.label}</p>
+                        {p.notes ? (
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap mt-0.5">{p.notes}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               {!mySignature ? (
                 <div className="rounded-xl border border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
                   You are not assigned to sign this request.
@@ -393,38 +501,30 @@ export default function SignatoryClearanceDetail() {
               </DialogTitle>
               <DialogDescription>
                 {actionType === 'approve'
-                  ? 'You are about to sign this clearance request. Add optional notes below, then confirm.'
-                  : 'Provide a reason for declining this request.'}
+                  ? 'You are about to sign this clearance request. Enter required remarks below, then confirm.'
+                  : 'Provide remarks explaining why this request is being rejected.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Notes (optional)</Label>
+                <Label>Remarks (required)</Label>
                 <Textarea
                   placeholder={
                     actionType === 'approve'
-                      ? 'Add any notes for the student...'
+                      ? 'Enter remarks for the student...'
                       : 'Explain why this request is being rejected...'
                   }
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Remarks (optional)</Label>
-                <Textarea
-                  placeholder="Add any remarks that will be visible on the request..."
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">Remarks will be displayed on the student's request record.</p>
+                <p className="text-xs text-muted-foreground">Remarks will be displayed on the student&apos;s request record.</p>
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={actionLoading}>
                 Cancel
               </Button>
-              <Button onClick={submitAction} disabled={actionLoading}>
+              <Button onClick={submitAction} disabled={actionLoading || !remarks.trim()}>
                 {actionLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -432,6 +532,40 @@ export default function SignatoryClearanceDetail() {
                   </>
                 ) : (
                   'Confirm'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="font-display">Verify office requirement</DialogTitle>
+              <DialogDescription>
+                Confirm documents are in order for: {verifyTarget?.label ?? 'this requirement'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label>Verification notes (required)</Label>
+              <Textarea
+                placeholder="Describe what was checked in office..."
+                value={verifyNotes}
+                onChange={(e) => setVerifyNotes(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setVerifyDialogOpen(false)} disabled={verifyLoading}>
+                Cancel
+              </Button>
+              <Button onClick={submitOfficeVerification} disabled={verifyLoading || !verifyNotes.trim()}>
+                {verifyLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Confirm verified'
                 )}
               </Button>
             </DialogFooter>

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -7,10 +8,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum PreClearanceGate {
+  faculty
+  cmo
+  guidance
+}
+
 enum Role {
   student
+  employee
   signatory
   superadmin
+  faculty_admin
+  hr_admin
+}
+
+enum RequirementKind {
+  document
+  physical
+  office
+}
+
+enum ExtensionStatus {
+  pending
+  approved
+  rejected
 }
 
 enum ClearanceStatus {
@@ -32,6 +54,14 @@ enum SignatoryGroup {
   authority
 }
 
+/// Who may fill which line on the institutional Section III (certification) form.
+enum InstitutionalCertificationRole {
+  none
+  preparer
+  hrmdo
+  president
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -47,6 +77,16 @@ model User {
   studentAssignments StudentSignatoryAssignment[]
   activityLogs ActivityLog[]
   notifications Notification[]
+
+  institutionalClearances         InstitutionalClearance[]      @relation("InstitutionalRequester")
+  institutionalItemApprovals      InstitutionalClearanceItem[]  @relation("InstitutionalItemApprover")
+  institutionalFilesUploaded     InstitutionalClearanceFile[]  @relation("InstitutionalFileUploader")
+  clearanceExtensionRequests     ClearancePeriodExtension[]    @relation("ExtensionStudent")
+  clearanceExtensionReviews      ClearancePeriodExtension[]    @relation("ExtensionReviewer")
+  officeRequirementVerifications   ClearanceRequirementFulfillment[] @relation("OfficeVerifier")
+  institutionalOfficeVerifications InstitutionalClearanceItemFulfillment[] @relation("InstitutionalOfficeVerifier")
+  preClearanceVerifications        StudentPreClearanceVerification[] @relation("PreClearanceStudent")
+  preClearanceVerificationsGiven   StudentPreClearanceVerification[] @relation("PreClearanceVerifier")
 
   @@map("users")
 }
@@ -72,13 +112,34 @@ model Profile {
   course     String?
   address    String?
   age        Int?
-  isArchived Boolean  @default(false)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+  /// HR / employee record (optional)
+  jobTitle           String?
+  employeeDepartment String?
+  hireDate           DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   user       User     @relation(fields: [id], references: [id], onDelete: Cascade)
 
   @@map("profiles")
+}
+
+/// In-person verification at faculty / sister offices before a student may request or submit clearance.
+model StudentPreClearanceVerification {
+  id               String           @id @default(cuid())
+  studentId        String
+  gate             PreClearanceGate
+  verifiedAt       DateTime         @default(now())
+  verifiedByUserId String
+  notes            String?
+  student          User             @relation("PreClearanceStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  verifiedBy       User             @relation("PreClearanceVerifier", fields: [verifiedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, gate])
+  @@index([studentId])
+  @@map("student_pre_clearance_verifications")
 }
 
 model Signatory {
@@ -88,10 +149,16 @@ model Signatory {
   department             String
   email                  String
   isActive               Boolean       @default(true)
+  isArchived             Boolean       @default(false)
+  archivedAt             DateTime?
   userId                 String?       @unique
   signatoryGroup         SignatoryGroup @default(standard)
   authoritySequenceOrder Int?
   createdAt              DateTime      @default(now())
+  /// Role for Section III: HRMDO / President lines (separate from row-level signatory for Section II)
+  institutionalCertRole  InstitutionalCertificationRole @default(none)
+  /// JSON: `{ "timezone": "Asia/Manila", "windows": [{ "dow": 1, "start": "09:00", "end": "17:00" }] }` (dow 0–6, Sun–Sat). Null = no enforcement.
+  weeklyHoursJson        Json?
 
   user                   User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -99,8 +166,68 @@ model Signatory {
   defaultOrder            ClearanceDefaultSignatory?
   studentAssignments      StudentSignatoryAssignment[]
   stepNotes               StudentClearanceStepNote[]
+  institutionalItems      InstitutionalClearanceItem[]
+  institutionalOfficeDefs InstitutionalOfficeDefinition[]
+  requirements            SignatoryRequirement[]
 
   @@map("signatories")
+}
+
+model SignatoryRequirement {
+  id             Int              @id @default(autoincrement())
+  signatoryId    String
+  sortOrder      Int
+  kind           RequirementKind
+  label          String
+  instructions   String?          @db.Text
+  required       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  signatory    Signatory                       @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+  fulfillments ClearanceRequirementFulfillment[]
+  institutionalFulfillments InstitutionalClearanceItemFulfillment[]
+
+  @@index([signatoryId])
+  @@map("signatory_requirements")
+}
+
+model ClearanceRequirementFulfillment {
+  id                       String    @id @default(cuid())
+  clearanceSignatureId     String
+  signatoryRequirementId   Int
+  /// Array of `{ "blobUrl", "fileName" }` for document kind
+  documentUrls             Json      @default("[]")
+  physicalAttestedAt       DateTime?
+  officeVerifiedAt         DateTime?
+  officeVerifiedByUserId   String?
+  officeVerificationNotes  String?   @db.Text
+
+  signature    ClearanceSignature    @relation(fields: [clearanceSignatureId], references: [id], onDelete: Cascade)
+  requirement  SignatoryRequirement  @relation(fields: [signatoryRequirementId], references: [id], onDelete: Cascade)
+  officeVerifier User?               @relation("OfficeVerifier", fields: [officeVerifiedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([clearanceSignatureId, signatoryRequirementId])
+  @@index([clearanceSignatureId])
+  @@map("clearance_requirement_fulfillments")
+}
+
+model ClearancePeriodExtension {
+  id             String          @id @default(cuid())
+  studentId      String
+  extendsTo      DateTime
+  reason         String          @db.Text
+  status         ExtensionStatus @default(pending)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  student    User  @relation("ExtensionStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ExtensionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([studentId, status])
+  @@map("clearance_period_extensions")
 }
 
 model ClearanceRequest {
@@ -109,6 +236,8 @@ model ClearanceRequest {
   title       String
   description String?
   status      ClearanceStatus @default(pending)
+  isArchived  Boolean        @default(false)
+  archivedAt  DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -135,6 +264,7 @@ model ClearanceSignature {
 
   clearanceRequest       ClearanceRequest @relation(fields: [clearanceRequestId], references: [id], onDelete: Cascade)
   signatory              Signatory        @relation(fields: [signatoryId], references: [id], onDelete: Cascade)
+  requirementFulfillments ClearanceRequirementFulfillment[]
 
   @@index([clearanceRequestId])
   @@index([signatoryId])
@@ -230,4 +360,145 @@ model StudentClearanceStepNote {
 
   @@unique([clearanceRequestId, signatoryId])
   @@map("student_clearance_step_notes")
+}
+
+enum InstitutionalClearanceStatus {
+  draft
+  pending
+  in_progress
+  completed
+  rejected
+}
+
+enum InstitutionalItemStatus {
+  pending
+  approved
+  rejected
+  waived
+}
+
+/// Staff / employee institutional (exit) clearance — separate from student clearances
+model InstitutionalClearance {
+  id               String                      @id @default(cuid())
+  requesterId      String
+  fullName         String
+  position         String
+  /// teaching | ntp
+  employeeType     String?
+  department       String
+  dateOfSeparation DateTime?
+  /// resignation | end_of_contract | transfer | other
+  reasonCategory   String?
+  /// Free text when reasonCategory is other, or additional notes
+  reasonOtherDetails String?                  @db.Text
+  reason           String?                     @db.Text
+  /// cleared | not_cleared
+  finalClearanceStatus  String?
+  finalClearanceRemarks String?                 @db.Text
+  status           InstitutionalClearanceStatus @default(pending)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  requester User                          @relation("InstitutionalRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  items     InstitutionalClearanceItem[]
+  approval  InstitutionalClearanceCertification?
+  files     InstitutionalClearanceFile[]
+
+  @@index([requesterId])
+  @@index([status])
+  @@map("institutional_clearance")
+}
+
+/// Configurable office rows for new institutional clearances (Section II template).
+model InstitutionalOfficeDefinition {
+  id              String   @id @default(cuid())
+  sortOrder       Int
+  departmentLabel String
+  signatoryId     String?
+  isArchived      Boolean  @default(false)
+  archivedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  signatory Signatory? @relation(fields: [signatoryId], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+  @@map("institutional_office_definitions")
+}
+
+model InstitutionalClearanceFile {
+  id                       String   @id @default(cuid())
+  institutionalClearanceId String
+  fileName                 String
+  contentType              String?
+  blobUrl                  String
+  uploadedById             String
+  isArchived               Boolean  @default(false)
+  archivedAt               DateTime?
+  createdAt                DateTime @default(now())
+
+  clearance  InstitutionalClearance @relation(fields: [institutionalClearanceId], references: [id], onDelete: Cascade)
+  uploadedBy User                   @relation("InstitutionalFileUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([institutionalClearanceId])
+  @@map("institutional_clearance_files")
+}
+
+/// One row per office/department in the fixed employee clearance table (order matters).
+model InstitutionalClearanceItem {
+  id                       String                 @id @default(cuid())
+  institutionalClearanceId String
+  signatoryId              String?
+  departmentLabel         String
+  sortOrder                 Int
+  status                   InstitutionalItemStatus @default(pending)
+  submissionRemarks        String?                @db.Text
+  remarks                  String?                @db.Text
+  approverName             String?
+  approvedAt               DateTime?
+  approvedByUserId         String?
+
+  clearance  InstitutionalClearance @relation(fields: [institutionalClearanceId], references: [id], onDelete: Cascade)
+  signatory  Signatory?            @relation(fields: [signatoryId], references: [id], onDelete: SetNull)
+  approvedBy User?                 @relation("InstitutionalItemApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  requirementFulfillments InstitutionalClearanceItemFulfillment[]
+
+  @@index([institutionalClearanceId])
+  @@index([signatoryId])
+  @@map("institutional_clearance_items")
+}
+
+model InstitutionalClearanceItemFulfillment {
+  id                           String    @id @default(cuid())
+  institutionalClearanceItemId String
+  signatoryRequirementId       Int
+  documentUrls                 Json      @default("[]")
+  physicalAttestedAt           DateTime?
+  officeVerifiedAt             DateTime?
+  officeVerifiedByUserId       String?
+  officeVerificationNotes      String?   @db.Text
+
+  item         InstitutionalClearanceItem @relation(fields: [institutionalClearanceItemId], references: [id], onDelete: Cascade)
+  requirement  SignatoryRequirement       @relation(fields: [signatoryRequirementId], references: [id], onDelete: Cascade)
+  officeVerifier User?                    @relation("InstitutionalOfficeVerifier", fields: [officeVerifiedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([institutionalClearanceItemId, signatoryRequirementId])
+  @@index([institutionalClearanceItemId])
+  @@map("institutional_clearance_item_fulfillments")
+}
+
+/// Certification block: prepared / verified / approved (separate 1:1 from main form)
+model InstitutionalClearanceCertification {
+  id                       String  @id @default(cuid())
+  institutionalClearanceId String  @unique
+  preparedByName           String?
+  preparedAt               DateTime?
+  verifiedByName           String?
+  verifiedAt               DateTime?
+  approvedByName           String?
+  approvedAt               DateTime?
+
+  clearance InstitutionalClearance @relation(fields: [institutionalClearanceId], references: [id], onDelete: Cascade)
+
+  @@map("institutional_clearance_approvals")
 }

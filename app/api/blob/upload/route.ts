@@ -3,8 +3,26 @@ import { mkdir, writeFile } from 'fs/promises';
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { put } from '@vercel/blob';
+import { ensureDeploymentEnv, publicAppBaseUrl } from '@/lib/resolveDeploymentUrl';
 
 export const runtime = 'nodejs';
+
+ensureDeploymentEnv();
+
+function isVercelRuntime() {
+  return Boolean(process.env.VERCEL);
+}
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp']);
 
 function hasBlobToken() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
@@ -19,9 +37,7 @@ async function saveLocalPublicUpload(req: Request, relativePath: string, file: F
   await writeFile(fullPath, buf);
 
   const url = new URL(req.url);
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ||
-    `${url.protocol}//${url.host}`;
+  const base = publicAppBaseUrl(`${url.protocol}//${url.host}`) ?? `${url.protocol}//${url.host}`;
   const publicPath = `/uploads/${relativePath.split(path.sep).join('/')}`;
   return `${base}${publicPath}`;
 }
@@ -36,7 +52,18 @@ export async function POST(req: Request) {
   const file = form.get('file');
 
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'Missing file' }, { status: 400 });
+    return NextResponse.json({ error: 'Please choose a file to upload.' }, { status: 400 });
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: 'File is too large. Maximum upload size is 10 MB.' }, { status: 413 });
+  }
+
+  const ext = String(file.name || '').split('.').pop()?.toLowerCase() ?? '';
+  if (!ALLOWED_EXTENSIONS.has(ext) || (file.type && !ALLOWED_CONTENT_TYPES.has(file.type))) {
+    return NextResponse.json(
+      { error: 'Unsupported file type. Upload PDF, Word document, JPG, PNG, or WebP files only.' },
+      { status: 400 }
+    );
   }
 
   const userId = (session.user as any).id as string;
@@ -46,6 +73,16 @@ export async function POST(req: Request) {
   const relativePath = path.join(folder, userId, `${ts}-${safeName}`);
 
   try {
+    if (!hasBlobToken() && isVercelRuntime()) {
+      return NextResponse.json(
+        {
+          error:
+            'File uploads are not configured for this deployment. Add a Vercel Blob store and set BLOB_READ_WRITE_TOKEN.',
+        },
+        { status: 503 }
+      );
+    }
+
     if (hasBlobToken()) {
       const pathname = `${folder}/${userId}/${ts}-${safeName}`;
       const blob = await put(pathname, file, {
@@ -67,8 +104,7 @@ export async function POST(req: Request) {
       blob_url,
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
     console.error('[blob/upload]', e);
-    return NextResponse.json({ error: msg || 'Upload failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Could not upload the file. Try again or use a smaller file.' }, { status: 500 });
   }
 }

@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canViewAdminActivityLogs } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireActivityViewer(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canViewAdminActivityLogs(roles));
 }
 
 export async function GET(req: Request) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireActivityViewer(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

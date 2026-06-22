@@ -154,6 +154,26 @@ Serve the `dist/` folder with any static host (or behind a reverse proxy). Set t
 
 ---
 
+sample accounts
+Role	Email (from your run / defaults in code)
+Superadmin
+sfcadmin@school.edu (from SEED_ADMIN_EMAIL)
+Employee
+employee@test.com (default SEED_EMPLOYEE_EMAIL unless overridden)
+Signatory
+signatory1@sfc-g.edu.ph (default SEED_SIGNATORY_EMAIL unless overridden)
+
+
+
+
+
+
+
+
+
+
+
+
 ## License
 
 All rights reserved.

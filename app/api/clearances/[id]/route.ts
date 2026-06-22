@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { isStudentRecordsElevation, canRequestStudentClearance, isHrAdmin } from '@/lib/permissionsMatrix';
 
 function roles(session: any): string[] {
   return ((session as any)?.user?.roles ?? []) as string[];
@@ -20,6 +21,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
   const id = ctx.params.id;
   const userId = (session.user as any).id as string;
   const r = roles(session);
+  const isStaffAdmin = isStudentRecordsElevation(r) || isHrAdmin(r);
 
   const cr = await prisma.clearanceRequest.findUnique({
     where: { id },
@@ -34,15 +36,18 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const isSuperadmin = r.includes('superadmin');
-  const isStudent = r.includes('student');
+  if (cr.isArchived && !isStaffAdmin && cr.studentId !== userId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  const isOwnStudentRequester = canRequestStudentClearance(r) && cr.studentId === userId;
   const isSignatory = r.includes('signatory');
 
   let allowed = false;
   let signatoryId: string | null = null;
 
-  if (isSuperadmin) allowed = true;
-  if (isStudent && cr.studentId === userId) allowed = true;
+  if (isStaffAdmin) allowed = true;
+  if (isOwnStudentRequester) allowed = true;
   if (!allowed && isSignatory) {
     signatoryId = await getSignatoryIdForUser(userId);
     if (signatoryId) {
@@ -110,36 +115,59 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     signature_id: f.signatureId ?? null,
   }));
 
-  return NextResponse.json({ clearance, signatures, files, step_note: stepNote, signatory_id: signatoryId });
+  let pendingOfficeVerifications: { signature_id: string; fulfillment_id: string; label: string }[] = [];
+  let verifiedOfficeRequirements: {
+    signature_id: string;
+    fulfillment_id: string;
+    label: string;
+    notes: string | null;
+    verified_at: string | null;
+  }[] = [];
+  if (isSignatory && signatoryId) {
+    const mineSigIds = cr.signatures.filter((s) => s.signatoryId === signatoryId).map((s) => s.id);
+    if (mineSigIds.length) {
+      const fuls = await prisma.clearanceRequirementFulfillment.findMany({
+        where: {
+          clearanceSignatureId: { in: mineSigIds },
+          requirement: { kind: 'office' },
+        },
+        include: { requirement: { select: { label: true } } },
+      });
+      pendingOfficeVerifications = fuls
+        .filter((f) => !f.officeVerifiedAt)
+        .map((f) => ({
+          signature_id: f.clearanceSignatureId,
+          fulfillment_id: f.id,
+          label: f.requirement.label,
+        }));
+      verifiedOfficeRequirements = fuls
+        .filter((f) => f.officeVerifiedAt)
+        .map((f) => ({
+          signature_id: f.clearanceSignatureId,
+          fulfillment_id: f.id,
+          label: f.requirement.label,
+          notes: f.officeVerificationNotes ?? null,
+          verified_at: f.officeVerifiedAt ? f.officeVerifiedAt.toISOString() : null,
+        }));
+    }
+  }
+
+  return NextResponse.json({
+    clearance,
+    signatures,
+    files,
+    step_note: stepNote,
+    signatory_id: signatoryId,
+    pending_office_verifications: pendingOfficeVerifications,
+    verified_office_requirements: verifiedOfficeRequirements,
+  });
 }
 
-export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
-  const session = await getAppSession();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+import { apiErrorResponse } from '@/server/apiUserError';
 
-  const userId = (session.user as any).id as string;
-  const r = roles(session);
-
-  if (!r.includes('student')) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  const id = ctx.params.id;
-  const cr = await prisma.clearanceRequest.findUnique({
-    where: { id },
-    include: { signatures: true },
-  });
-
-  if (!cr) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (cr.studentId !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-  const hasNonPending = cr.signatures.some((s) => s.status !== 'pending');
-  if (hasNonPending) {
-    return NextResponse.json({ error: 'Cannot delete after processing started' }, { status: 400 });
-  }
-
-  await prisma.clearanceRequest.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+export async function DELETE(_req: Request, _ctx: { params: { id: string } }) {
+  return apiErrorResponse(
+    'Clearance requests cannot be deleted. Use Archive instead while the request is still pending.',
+    405
+  );
 }

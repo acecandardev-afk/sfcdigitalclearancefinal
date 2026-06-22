@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
@@ -17,13 +18,13 @@ const BodySchema = z.object({
 export async function POST(req: Request) {
   const envSecret = process.env.BOOTSTRAP_SECRET;
   if (!envSecret) {
-    return NextResponse.json({ error: 'BOOTSTRAP_SECRET not set' }, { status: 500 });
+    return NextResponse.json({ error: 'The server had a problem. Please try again later.' }, { status: 500 });
   }
 
   const json = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   if (parsed.data.secret !== envSecret) {

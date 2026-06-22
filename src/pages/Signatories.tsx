@@ -1,15 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUserRole } from '@/hooks/useUserRole';
+import {
+  canCreateUsers,
+  canArchiveSignatory,
+  canManageArchivedRecords,
+  canManageDefaultSignatories,
+  canWriteSignatories,
+} from '@/lib/permissionsMatrix';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -51,6 +66,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   Plus,
   Pencil,
+  Archive,
   Trash2,
   Loader2,
   Users,
@@ -64,10 +80,12 @@ import {
   CheckCircle2,
   ArrowDown,
   GripVertical,
+  ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { formatApiErrorBody } from '@/lib/userMessages';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
 
 interface Signatory {
   id: string;
@@ -78,6 +96,43 @@ interface Signatory {
   is_active: boolean;
   user_id: string | null;
   created_at: string;
+  /** Who may fill Section III lines on institutional clearance: preparer / HRMDO / President */
+  institutional_cert_role: 'none' | 'preparer' | 'hrmdo' | 'president';
+  /** Weekly office hours JSON (validated server-side when enforcing submit windows). */
+  weekly_hours_json: unknown | null;
+}
+
+type RequirementEditorRow = {
+  clientKey: string;
+  sort_order: number;
+  kind: 'document' | 'physical' | 'office';
+  label: string;
+  instructions: string;
+  required: boolean;
+};
+
+function newClientKey() {
+  return globalThis.crypto?.randomUUID?.() ?? `k-${Math.random().toString(36).slice(2)}`;
+}
+
+function requirementApiToEditor(r: Record<string, unknown>): RequirementEditorRow {
+  const sort =
+    typeof r.sortOrder === 'number'
+      ? r.sortOrder
+      : typeof r.sort_order === 'number'
+        ? r.sort_order
+        : 0;
+  const k = String(r.kind ?? 'document');
+  const kind: RequirementEditorRow['kind'] =
+    k === 'physical' || k === 'office' ? k : 'document';
+  return {
+    clientKey: newClientKey(),
+    sort_order: sort,
+    kind,
+    label: String(r.label ?? ''),
+    instructions: r.instructions == null ? '' : String(r.instructions),
+    required: r.required !== false,
+  };
 }
 
 function apiSignatoryToUi(s: any): Signatory {
@@ -90,6 +145,11 @@ function apiSignatoryToUi(s: any): Signatory {
     is_active: Boolean(s.is_active ?? s.isActive ?? false),
     user_id: (s.user_id ?? s.userId ?? null) as string | null,
     created_at: String(s.created_at ?? s.createdAt ?? ''),
+    institutional_cert_role:
+      (s.institutionalCertRole as Signatory['institutional_cert_role'] | undefined) ??
+      (s.institutional_cert_role as Signatory['institutional_cert_role'] | undefined) ??
+      'none',
+    weekly_hours_json: (s.weeklyHoursJson ?? s.weekly_hours_json ?? null) as unknown | null,
   };
 }
 
@@ -98,6 +158,7 @@ const signatorySchema = z.object({
   position: z.string().trim().min(1, 'Position is required').max(100, 'Position must be less than 100 characters'),
   department: z.string().trim().min(1, 'Department is required').max(100, 'Department must be less than 100 characters'),
   email: z.string().trim().email('Invalid email address').max(255, 'Email must be less than 255 characters'),
+  institutional_cert_role: z.enum(['none', 'preparer', 'hrmdo', 'president']).default('none'),
 });
 
 const accountSchema = z.object({
@@ -213,7 +274,8 @@ function SortableDefaultOrderRow({
           className="text-destructive hover:text-destructive"
           disabled={disabled}
           onClick={onRemove}
-          aria-label="Remove from order"
+          aria-label="Remove from default order"
+          title="Remove from default order"
         >
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -224,13 +286,26 @@ function SortableDefaultOrderRow({
 
 export default function Signatories() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useUserRole();
+  const { roles, loading: roleLoading } = useUserRole();
+  const allowSignatoryPage = useMemo(() => canWriteSignatories(roles), [roles]);
+  const allowArchiveSig = useMemo(() => canArchiveSignatory(roles), [roles]);
+  const allowArchivedPage = useMemo(() => canManageArchivedRecords(roles), [roles]);
+  const allowCreateUser = useMemo(() => canCreateUsers(roles), [roles]);
+  const allowDefaultOrder = useMemo(() => canManageDefaultSignatories(roles), [roles]);
+
   const [signatories, setSignatories] = useState<Signatory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [removeOrderRowId, setRemoveOrderRowId] = useState<string | null>(null);
+  const [requirementsDialogOpen, setRequirementsDialogOpen] = useState(false);
+  const [reqSignatory, setReqSignatory] = useState<Signatory | null>(null);
+  const [reqEditorRows, setReqEditorRows] = useState<RequirementEditorRow[]>([]);
+  const [weeklyHoursDraft, setWeeklyHoursDraft] = useState('');
+  const [reqRowsLoading, setReqRowsLoading] = useState(false);
+  const [reqSaving, setReqSaving] = useState(false);
   const [selectedSignatory, setSelectedSignatory] = useState<Signatory | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   // Default signatories for student clearances (admin-assigned order)
@@ -257,6 +332,7 @@ export default function Signatories() {
       position: '',
       department: '',
       email: '',
+      institutional_cert_role: 'none',
     },
   });
 
@@ -267,14 +343,14 @@ export default function Signatories() {
 
   useEffect(() => {
     if (!roleLoading) {
-      if (!isSuperAdmin()) {
+      if (!allowSignatoryPage) {
         navigate('/dashboard');
       } else {
         fetchSignatories();
         fetchDefaultSignatories();
       }
     }
-  }, [roleLoading, isSuperAdmin, navigate]);
+  }, [roleLoading, allowSignatoryPage, navigate]);
 
   const fetchDefaultSignatories = async () => {
     try {
@@ -284,7 +360,7 @@ export default function Signatories() {
       setDefaultSignatories((json.defaultSignatories || []) as DefaultSignatoryOrderItem[]);
     } catch (error) {
       console.error('Error fetching default signatories:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load default signatory order');
+      toast.error(safeActionErrorMessage(error, 'Could not load the default signatory list. Try refreshing the page.'));
     }
   };
 
@@ -296,7 +372,7 @@ export default function Signatories() {
       setSignatories(((json.signatories || []) as any[]).map(apiSignatoryToUi));
     } catch (error) {
       console.error('Error fetching signatories:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load signatories');
+      toast.error(safeActionErrorMessage(error, 'Could not load signatories. Try refreshing the page.'));
     } finally {
       setLoading(false);
     }
@@ -309,6 +385,7 @@ export default function Signatories() {
       position: '',
       department: '',
       email: '',
+      institutional_cert_role: 'none',
     });
     setDialogOpen(true);
   };
@@ -320,19 +397,101 @@ export default function Signatories() {
       position: signatory.position,
       department: signatory.department,
       email: signatory.email,
+      institutional_cert_role: signatory.institutional_cert_role,
     });
     setDialogOpen(true);
   };
 
-  const openDeleteDialog = (signatory: Signatory) => {
+  const openArchiveDialog = (signatory: Signatory) => {
     setSelectedSignatory(signatory);
-    setDeleteDialogOpen(true);
+    setArchiveDialogOpen(true);
   };
 
   const openAccountDialog = (signatory: Signatory) => {
     setSelectedSignatory(signatory);
     accountForm.reset({ password: '', confirmPassword: '' });
     setAccountDialogOpen(true);
+  };
+
+  const openRequirementsDialog = (signatory: Signatory) => {
+    setReqSignatory(signatory);
+    setWeeklyHoursDraft(
+      signatory.weekly_hours_json != null ? JSON.stringify(signatory.weekly_hours_json, null, 2) : ''
+    );
+    setReqEditorRows([]);
+    setRequirementsDialogOpen(true);
+    void loadRequirementsFor(signatory.id);
+  };
+
+  const loadRequirementsFor = async (signatoryId: string) => {
+    setReqRowsLoading(true);
+    try {
+      const res = await fetch(`/api/signatories/${signatoryId}/requirements`, { credentials: 'include' });
+      const json = (await res.json().catch(() => ({}))) as { requirements?: Record<string, unknown>[] };
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
+      const list = json.requirements ?? [];
+      setReqEditorRows(list.map(requirementApiToEditor));
+    } catch (e) {
+      console.error(e);
+      toast.error(safeActionErrorMessage(e, 'Could not load requirements. Try again.'));
+    } finally {
+      setReqRowsLoading(false);
+    }
+  };
+
+  const saveRequirementsAndHours = async () => {
+    if (!reqSignatory) return;
+    let weeklyParsed: unknown | null = null;
+    if (weeklyHoursDraft.trim()) {
+      try {
+        weeklyParsed = JSON.parse(weeklyHoursDraft) as unknown;
+      } catch {
+        toast.error('Office hours could not be saved. Check the day and time entries.');
+        return;
+      }
+    } else {
+      weeklyParsed = null;
+    }
+
+    setReqSaving(true);
+    try {
+      const putBody = {
+        requirements: reqEditorRows.map((row, idx) => ({
+          sort_order: Number.isFinite(row.sort_order) ? row.sort_order : idx,
+          kind: row.kind,
+          label: row.label.trim(),
+          instructions: row.instructions.trim() || null,
+          required: row.required,
+        })),
+      };
+      const resPut = await fetch(`/api/signatories/${reqSignatory.id}/requirements`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(putBody),
+      });
+      const jsonPut = await resPut.json().catch(() => ({}));
+      if (!resPut.ok) throw new Error(formatApiErrorBody(jsonPut));
+
+      const resPatch = await fetch(`/api/signatories/${reqSignatory.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekly_hours_json: weeklyParsed }),
+      });
+      const jsonPatch = await resPatch.json().catch(() => ({}));
+      if (!resPatch.ok) throw new Error(formatApiErrorBody(jsonPatch));
+
+      toast.success('Requirements and office hours saved');
+      setRequirementsDialogOpen(false);
+      setReqSignatory(null);
+      await fetchSignatories();
+    } catch (e) {
+      console.error(e);
+      toast.error(safeActionErrorMessage(e, 'Could not save. Check your entries and try again.'));
+    } finally {
+      setReqSaving(false);
+    }
   };
 
   const onSignatorySubmit = async (data: SignatoryFormData) => {
@@ -349,6 +508,7 @@ export default function Signatories() {
             position: data.position,
             department: data.department,
             email: data.email,
+            institutional_cert_role: data.institutional_cert_role,
           }),
         });
         const json = await res.json().catch(() => ({}));
@@ -366,6 +526,7 @@ export default function Signatories() {
             email: data.email,
             is_active: true,
             signatory_group: 'standard',
+            institutional_cert_role: data.institutional_cert_role,
           }),
         });
         const json = await res.json().catch(() => ({}));
@@ -377,7 +538,7 @@ export default function Signatories() {
       fetchSignatories();
     } catch (error) {
       console.error('Error saving signatory:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save signatory');
+      toast.error(safeActionErrorMessage(error, 'Could not save signatory. Try again.'));
     } finally {
       setFormLoading(false);
     }
@@ -410,28 +571,30 @@ export default function Signatories() {
       fetchSignatories();
     } catch (error: unknown) {
       console.error('Error creating account:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create account');
+      toast.error(safeActionErrorMessage(error, 'Could not create that account. Try again.'));
     } finally {
       setFormLoading(false);
     }
   };
 
-  const handleDelete = async () => {
+  const handleArchive = async () => {
     if (!selectedSignatory) return;
 
     try {
-      const res = await fetch(`/api/signatories/${selectedSignatory.id}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/signatories/${selectedSignatory.id}/archive`, {
+        method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archive: true }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(formatApiErrorBody(json));
-      toast.success('Signatory removed successfully');
-      setDeleteDialogOpen(false);
+      toast.success('Signatory archived');
+      setArchiveDialogOpen(false);
       fetchSignatories();
     } catch (error) {
-      console.error('Error deleting signatory:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to remove signatory');
+      console.error('Error archiving signatory:', error);
+      toast.error(safeActionErrorMessage(error, 'Could not archive this signatory. Try again.'));
     }
   };
 
@@ -449,7 +612,7 @@ export default function Signatories() {
       fetchSignatories();
     } catch (error) {
       console.error('Error toggling status:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update status');
+      toast.error(safeActionErrorMessage(error, 'Could not update status. Try again.'));
     }
   };
 
@@ -486,6 +649,7 @@ export default function Signatories() {
   }, [highlightDefaultRowId]);
 
   const addToDefaultOrder = async (signatory: Signatory) => {
+    if (!allowDefaultOrder) return;
     if (!signatory.is_active || stepBySignatoryId.has(signatory.id)) return;
     setDefaultOrderLoading(true);
     try {
@@ -510,13 +674,21 @@ export default function Signatories() {
       await fetchDefaultSignatories();
     } catch (error) {
       console.error('Error adding to default order:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to add signatory to order');
+      toast.error(safeActionErrorMessage(error, 'Could not add to the default order. Try again.'));
     } finally {
       setDefaultOrderLoading(false);
     }
   };
 
-  const removeFromDefaultOrder = async (rowId: string) => {
+  const removeFromDefaultOrder = (rowId: string) => {
+    if (!allowDefaultOrder) return;
+    setRemoveOrderRowId(rowId);
+  };
+
+  const confirmRemoveFromOrder = async () => {
+    if (!removeOrderRowId) return;
+    const rowId = removeOrderRowId;
+    setRemoveOrderRowId(null);
     setDefaultOrderLoading(true);
     try {
       const res = await fetch(`/api/default-signatories/${rowId}`, {
@@ -529,13 +701,14 @@ export default function Signatories() {
       fetchDefaultSignatories();
     } catch (error) {
       console.error('Error removing from default order:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to remove');
+      toast.error(safeActionErrorMessage(error, 'Could not remove from the default order. Try again.'));
     } finally {
       setDefaultOrderLoading(false);
     }
   };
 
   const commitDefaultOrderReorder = async (ids: string[]) => {
+    if (!allowDefaultOrder) return;
     setDefaultOrderLoading(true);
     try {
       const res = await fetch('/api/default-signatories', {
@@ -550,7 +723,7 @@ export default function Signatories() {
       toast.success('Order updated');
     } catch (error) {
       console.error('Error reordering:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update order');
+      toast.error(safeActionErrorMessage(error, 'Could not update the order. Try again.'));
       await fetchDefaultSignatories();
     } finally {
       setDefaultOrderLoading(false);
@@ -558,6 +731,7 @@ export default function Signatories() {
   };
 
   const moveInDefaultOrder = (index: number, direction: 'up' | 'down') => {
+    if (!allowDefaultOrder || defaultOrderLoading) return;
     const swap = direction === 'up' ? index - 1 : index + 1;
     if (swap < 0 || swap >= defaultSignatories.length) return;
     const newIds = arrayMove(defaultSignatories, index, swap).map((d) => d.id);
@@ -565,6 +739,7 @@ export default function Signatories() {
   };
 
   const onDefaultOrderDragEnd = (event: DragEndEvent) => {
+    if (!allowDefaultOrder || defaultOrderLoading) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = defaultSignatories.findIndex((d) => d.id === active.id);
@@ -594,17 +769,24 @@ export default function Signatories() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="w-full min-w-0 p-6 lg:p-8 xl:px-10 space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Manage Signatories</h1>
-            <p className="text-muted-foreground mt-1">Add, edit, or remove signatories. Assign who signs student requests.</p>
+            <p className="text-muted-foreground mt-1">Add, edit, or archive signatories. Assign who signs student requests.</p>
           </div>
-          <Button onClick={openAddDialog} className="shrink-0 rounded-xl shadow-sm">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Signatory
-          </Button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {allowArchivedPage ? (
+              <Button variant="outline" asChild className="rounded-xl shadow-sm">
+                <Link to="/dashboard/archived">View archived</Link>
+              </Button>
+            ) : null}
+            <Button onClick={openAddDialog} className="rounded-xl shadow-sm">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Signatory
+            </Button>
+          </div>
         </div>
 
         {/* Default signatories for requests (admin-assigned; students cannot choose) */}
@@ -643,7 +825,7 @@ export default function Signatories() {
                         key={d.id}
                         row={d}
                         step={index + 1}
-                        disabled={defaultOrderLoading}
+                        disabled={defaultOrderLoading || !allowDefaultOrder}
                         highlight={highlightDefaultRowId === d.id}
                         isFirst={index === 0}
                         isLast={index === defaultSignatories.length - 1}
@@ -660,7 +842,7 @@ export default function Signatories() {
               type="button"
               variant="outline"
               size="sm"
-              disabled={defaultOrderLoading || !canAddAnyActive}
+              disabled={defaultOrderLoading || !allowDefaultOrder || !canAddAnyActive}
               onClick={() => {
                 setAddOrderSearch('');
                 setInsertAsFirst(false);
@@ -742,7 +924,7 @@ export default function Signatories() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-12 sm:ml-0 flex-wrap">
-                      {!signatory.user_id && (
+                      {!signatory.user_id && allowCreateUser && (
                         <Button
                           variant="default"
                           size="sm"
@@ -753,6 +935,15 @@ export default function Signatories() {
                           Create Account
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openRequirementsDialog(signatory)}
+                        className="rounded-xl"
+                      >
+                        <ListChecks className="h-4 w-4 mr-1" />
+                        Requirements
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -768,14 +959,16 @@ export default function Signatories() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => openDeleteDialog(signatory)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {allowArchiveSig && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                          onClick={() => openArchiveDialog(signatory)}
+                        >
+                          <Archive className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -852,6 +1045,32 @@ export default function Signatories() {
                   </FormItem>
                 )}
               />
+              <FormField
+                control={signatoryForm.control}
+                name="institutional_cert_role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Institutional clearance (Section III)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">Not used for Section III</SelectItem>
+                        <SelectItem value="preparer">Prepared by (employee)</SelectItem>
+                        <SelectItem value="hrmdo">Checked and verified (HRMDO)</SelectItem>
+                        <SelectItem value="president">Approved (College President)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Limits who can edit each certification line on employee institutional clearances.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="rounded-xl">
                   Cancel
@@ -874,6 +1093,201 @@ export default function Signatories() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={requirementsDialogOpen}
+        onOpenChange={(open) => {
+          setRequirementsDialogOpen(open);
+          if (!open) setReqSignatory(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Requirements &amp; office hours</DialogTitle>
+            <DialogDescription>
+              {reqSignatory ? (
+                <>
+                  Configure submission methods for <strong>{reqSignatory.name}</strong>. Document = file upload; Physical =
+                  student attestation; Office = verified by this office before signing.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          {reqRowsLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Requirements</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() =>
+                    setReqEditorRows((prev) => [
+                      ...prev,
+                      {
+                        clientKey: newClientKey(),
+                        sort_order: prev.length,
+                        kind: 'document',
+                        label: '',
+                        instructions: '',
+                        required: true,
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add row
+                </Button>
+              </div>
+              <div className="max-h-[40vh] space-y-3 overflow-y-auto pr-1">
+                {reqEditorRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No requirements yet. Add rows or save empty to clear.</p>
+                ) : (
+                  reqEditorRows.map((row) => (
+                    <div key={row.clientKey} className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+                      <div className="flex flex-wrap gap-2">
+                        <div className="w-[100px]">
+                          <Label className="text-xs">Sort</Label>
+                          <Input
+                            type="number"
+                            value={row.sort_order}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              setReqEditorRows((prev) =>
+                                prev.map((x) =>
+                                  x.clientKey === row.clientKey
+                                    ? { ...x, sort_order: Number.isFinite(v) ? v : 0 }
+                                    : x
+                                )
+                              );
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-[140px] flex-1">
+                          <Label className="text-xs">Kind</Label>
+                          <Select
+                            value={row.kind}
+                            onValueChange={(v) =>
+                              setReqEditorRows((prev) =>
+                                prev.map((x) =>
+                                  x.clientKey === row.clientKey
+                                    ? { ...x, kind: v as RequirementEditorRow['kind'] }
+                                    : x
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="document">document</SelectItem>
+                              <SelectItem value="physical">physical</SelectItem>
+                              <SelectItem value="office">office</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-end pb-1">
+                          <label className="flex cursor-pointer items-center gap-2 text-xs">
+                            <Checkbox
+                              checked={row.required}
+                              onCheckedChange={(c) =>
+                                setReqEditorRows((prev) =>
+                                  prev.map((x) =>
+                                    x.clientKey === row.clientKey ? { ...x, required: !!c } : x
+                                  )
+                                )
+                              }
+                            />
+                            Required
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Label</Label>
+                        <Input
+                          value={row.label}
+                          onChange={(e) =>
+                            setReqEditorRows((prev) =>
+                              prev.map((x) =>
+                                x.clientKey === row.clientKey ? { ...x, label: e.target.value } : x
+                              )
+                            )
+                          }
+                          placeholder="e.g. Medical certificate"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Instructions</Label>
+                        <Textarea
+                          rows={2}
+                          value={row.instructions}
+                          onChange={(e) =>
+                            setReqEditorRows((prev) =>
+                              prev.map((x) =>
+                                x.clientKey === row.clientKey ? { ...x, instructions: e.target.value } : x
+                              )
+                            )
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() =>
+                          setReqEditorRows((prev) => prev.filter((x) => x.clientKey !== row.clientKey))
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div>
+                <Label>Weekly office hours (JSON)</Label>
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  Leave blank for no enforcement. Structure must match what the server expects for schedule checks.
+                </p>
+                <Textarea
+                  rows={6}
+                  className="font-mono text-xs"
+                  value={weeklyHoursDraft}
+                  onChange={(e) => setWeeklyHoursDraft(e.target.value)}
+                  placeholder="{}"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setRequirementsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl"
+              disabled={reqSaving || reqRowsLoading || !reqSignatory}
+              onClick={() => void saveRequirementsAndHours()}
+            >
+              {reqSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                'Save'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Create Account Dialog */}
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
         <DialogContent className="rounded-2xl sm:max-w-lg">
@@ -892,7 +1306,7 @@ export default function Signatories() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <PasswordInput placeholder="••••••••" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -905,7 +1319,7 @@ export default function Signatories() {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <PasswordInput placeholder="••••••••" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1042,20 +1456,39 @@ export default function Signatories() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      {/* Archive Signatory Confirmation */}
+      <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Signatory</AlertDialogTitle>
+            <AlertDialogTitle>Archive signatory?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove <strong>{selectedSignatory?.name}</strong>? This action cannot be undone.
+              Are you sure you want to archive <strong>{selectedSignatory?.name}</strong>? They will be hidden from the
+              active list and cannot sign in until restored from the Archived page. Clearance history and office links
+              are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleArchive}>Archive</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove from Default Order Confirmation */}
+      <AlertDialog open={!!removeOrderRowId} onOpenChange={(open) => { if (!open) setRemoveOrderRowId(null); }}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from default order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This signatory will no longer be automatically assigned to new student clearance requests. At least one
+              signatory must remain in the order, and none may have pending clearance steps.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmRemoveFromOrder()}
             >
               Remove
             </AlertDialogAction>

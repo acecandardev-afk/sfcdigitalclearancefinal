@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
-import { formatApiErrorBody } from '@/lib/userMessages';
+import { formatApiErrorBody, sanitizeUserFacingText } from '@/lib/userMessages';
 import { useUserRole } from '@/hooks/useUserRole';
+import { canCreateStudentAccounts, canManageArchivedRecords, canManageStudents } from '@/lib/permissionsMatrix';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +22,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Select,
   SelectContent,
@@ -34,31 +46,34 @@ import {
   Search,
   Pencil,
   Archive,
-  ArchiveRestore,
   Users,
   UserX,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PROGRAM_COURSES, YEAR_LEVEL_OPTIONS } from '@/constants/academicOptions';
+import { parseStudentsFromImportBuffer, STUDENT_IMPORT_ACCEPT, type ParsedStudentRow } from '@/lib/excelStudentImport';
 
-interface StudentProfile {
-  id: string;
-  full_name: string;
-  email: string | null;
-  student_id: string | null;
-  year_level: string | null;
-  course: string | null;
-  is_archived?: boolean;
-}
-
-const createSchema = z.object({
-  email: z.string().trim().email('Invalid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  full_name: z.string().trim().min(1, 'Full name is required'),
-  student_id: z.string().trim().optional(),
-  year_level: z.string().trim().optional(),
-  course: z.string().trim().optional(),
-});
+const createSchema = z
+  .object({
+    email: z.string().trim().email('Invalid email'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+    confirm_password: z.string().min(1, 'Confirm the password'),
+    full_name: z.string().trim().min(1, 'Full name is required'),
+    student_id: z.string().trim().optional(),
+    year_level: z.string().trim().optional(),
+    course: z.string().trim().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.password !== data.confirm_password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Passwords must match',
+        path: ['confirm_password'],
+      });
+    }
+  });
 
 const editSchema = z
   .object({
@@ -92,9 +107,22 @@ const editSchema = z
 type CreateFormData = z.infer<typeof createSchema>;
 type EditFormData = z.infer<typeof editSchema>;
 
+interface StudentProfile {
+  id: string;
+  full_name: string;
+  email: string | null;
+  student_id: string | null;
+  year_level: string | null;
+  course: string | null;
+  is_archived?: boolean;
+}
+
 export default function Students() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useUserRole();
+  const { roles, loading: roleLoading } = useUserRole();
+  const allowStudentsPage = useMemo(() => canManageStudents(roles), [roles]);
+  const allowArchivedPage = useMemo(() => canManageArchivedRecords(roles), [roles]);
+  const allowCreateStudent = useMemo(() => canCreateStudentAccounts(roles), [roles]);
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [totalActiveCount, setTotalActiveCount] = useState(0);
   const [archivedCount, setArchivedCount] = useState(0);
@@ -102,18 +130,32 @@ export default function Students() {
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [yearLevelFilter, setYearLevelFilter] = useState<string>('all');
-  const [showArchived, setShowArchived] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [archiveConfirmStudent, setArchiveConfirmStudent] = useState<StudentProfile | null>(null);
+  const [bulkArchiveConfirmOpen, setBulkArchiveConfirmOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentProfile | null>(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkRows, setBulkRows] = useState<ParsedStudentRow[]>([]);
+  const [bulkParseError, setBulkParseError] = useState<string | null>(null);
+  const [bulkFileName, setBulkFileName] = useState<string | null>(null);
+  const [bulkImportSummary, setBulkImportSummary] = useState<{
+    created: number;
+    failed: number;
+    defaultPassword?: string;
+    results: Array<{ email: string; ok: boolean; error?: string }>;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createForm = useForm<CreateFormData>({
     resolver: zodResolver(createSchema),
     defaultValues: {
       email: '',
       password: '',
+      confirm_password: '',
       full_name: '',
       student_id: '',
       year_level: '',
@@ -135,17 +177,17 @@ export default function Students() {
 
   useEffect(() => {
     if (!roleLoading) {
-      if (!isSuperAdmin()) {
+      if (!allowStudentsPage) {
         navigate('/dashboard');
       } else {
         fetchStudents();
       }
     }
-  }, [roleLoading, isSuperAdmin, navigate, showArchived]);
+  }, [roleLoading, allowStudentsPage, navigate]);
 
   const fetchStudents = async () => {
     try {
-      const res = await fetch(`/api/students?archived=${showArchived ? '1' : '0'}`, {
+      const res = await fetch('/api/students', {
         credentials: 'include',
       });
       const json = await res.json().catch(() => ({}));
@@ -160,16 +202,11 @@ export default function Students() {
         is_archived: Boolean(s.is_archived ?? false),
       }));
       setStudents(list);
-
-      // Simple counts derived from current list. Accurate totals can be added later via API if needed.
-      if (showArchived) {
-        setArchivedCount(list.length);
-      } else {
-        setTotalActiveCount(list.length);
-      }
+      setTotalActiveCount(list.length);
+      setArchivedCount(Number(json.archivedCount ?? 0));
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load students');
+      toast.error(safeActionErrorMessage(error, 'Could not load the student list. Try refreshing the page.'));
     } finally {
       setLoading(false);
     }
@@ -179,12 +216,108 @@ export default function Students() {
     createForm.reset({
       email: '',
       password: '',
+      confirm_password: '',
       full_name: '',
       student_id: '',
       year_level: '',
       course: '',
     });
     setCreateDialogOpen(true);
+  };
+
+  const downloadStudentImportTemplate = () => {
+    const headers = ['Full name', 'Student ID', 'Year level', 'Course', 'Email (optional)'];
+    const sample = ['Sample Student', '2024-001', '1st Year', 'BSCS', 'student@example.edu'];
+    const csv = [headers, sample]
+      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'student-import-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openBulkImportDialog = () => {
+    setBulkRows([]);
+    setBulkParseError(null);
+    setBulkFileName(null);
+    setBulkImportSummary(null);
+    setBulkDialogOpen(true);
+  };
+
+  const onBulkFileSelected = async (file: File | null) => {
+    setBulkParseError(null);
+    setBulkImportSummary(null);
+    if (!file) return;
+    setBulkFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseStudentsFromImportBuffer(buf, file.name);
+      if (parsed.ok === false) {
+        setBulkRows([]);
+        setBulkParseError(parsed.message);
+        return;
+      }
+      if (parsed.rows.length > 500) {
+        setBulkRows([]);
+        setBulkParseError('A maximum of 500 rows can be imported at once. Split your file and try again.');
+        return;
+      }
+      setBulkRows(parsed.rows);
+      if (parsed.skippedRows > 0) {
+        toast.info(
+          `${parsed.skippedRows} row(s) were skipped because they were missing name, ID, year, or course.`
+        );
+      }
+    } catch {
+      setBulkRows([]);
+      setBulkParseError('Could not read the file.');
+    }
+  };
+
+  const onBulkImportSubmit = async () => {
+    if (bulkRows.length === 0) return;
+    setFormLoading(true);
+    try {
+      const students = bulkRows.map((r) => ({
+        email: r.email,
+        full_name: r.full_name,
+        student_id: r.student_id,
+        year_level: r.year_level,
+        course: r.course,
+      }));
+      const res = await fetch('/api/admin/students/bulk-import', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ students }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
+      setBulkImportSummary({
+        created: Number(json.created ?? 0),
+        failed: Number(json.failed ?? 0),
+        defaultPassword: typeof json.defaultPassword === 'string' ? json.defaultPassword : 'password',
+        results: Array.isArray(json.results) ? json.results : [],
+      });
+      const msg =
+        typeof json.message === 'string'
+          ? json.message
+          : `${json.created ?? 0} created, ${json.failed ?? 0} failed`;
+      if ((json.failed ?? 0) === 0) {
+        toast.success(msg);
+      } else {
+        toast.warning(msg);
+      }
+      fetchStudents();
+    } catch (err: unknown) {
+      toast.error(safeActionErrorMessage(err, 'Bulk import failed'));
+    } finally {
+      setFormLoading(false);
+    }
   };
 
   const openEditDialog = (student: StudentProfile) => {
@@ -218,7 +351,7 @@ export default function Students() {
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create student');
+      if (!res.ok) throw new Error(formatApiErrorBody(json));
 
       toast.success('Student account created. They can now sign in.');
       setCreateDialogOpen(false);
@@ -263,67 +396,29 @@ export default function Students() {
     }
   };
 
-  const toggleArchive = async (student: StudentProfile, archive: boolean) => {
+  const performArchive = async (ids: string[]) => {
+    setArchiving(true);
     try {
-      const res = await fetch(`/api/students/${student.id}/archive`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archive }),
-      });
-      if (!res.ok) throw new Error('Could not update archive status');
-      toast.success(archive ? 'Student archived' : 'Student restored');
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(student.id);
-        return next;
-      });
-      fetchStudents();
-    } catch (err: unknown) {
-      console.error('Error archiving:', err);
-      toast.error(safeActionErrorMessage(err, 'Could not update archive status'));
-    }
-  };
-
-  const bulkArchive = async () => {
-    if (selectedIds.size === 0) return;
-    try {
-      for (const id of Array.from(selectedIds)) {
+      for (const id of ids) {
         const res = await fetch(`/api/students/${id}/archive`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ archive: true }),
         });
-        if (!res.ok) throw new Error('Failed to archive');
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(formatApiErrorBody(json, 'Could not archive this student.'));
       }
-      toast.success(`${selectedIds.size} student(s) archived`);
+      toast.success(ids.length === 1 ? 'Student archived' : `${ids.length} student(s) archived`);
       setSelectedIds(new Set());
+      setArchiveConfirmStudent(null);
+      setBulkArchiveConfirmOpen(false);
       fetchStudents();
     } catch (err: unknown) {
       console.error('Error archiving:', err);
-      toast.error(safeActionErrorMessage(err, 'Failed to archive'));
-    }
-  };
-
-  const bulkRestore = async () => {
-    if (selectedIds.size === 0) return;
-    try {
-      for (const id of Array.from(selectedIds)) {
-        const res = await fetch(`/api/students/${id}/archive`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archive: false }),
-        });
-        if (!res.ok) throw new Error('Failed to restore');
-      }
-      toast.success(`${selectedIds.size} student(s) restored`);
-      setSelectedIds(new Set());
-      fetchStudents();
-    } catch (err: unknown) {
-      console.error('Error restoring:', err);
-      toast.error(safeActionErrorMessage(err, 'Failed to restore'));
+      toast.error(safeActionErrorMessage(err, 'Could not archive this student.'));
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -375,12 +470,28 @@ export default function Students() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight">Students</h1>
-            <p className="text-muted-foreground mt-1">Create and manage student accounts. Students cannot self-register.</p>
+            <p className="text-muted-foreground mt-1">
+              Create accounts one by one (you set passwords), or bulk-import from CSV or Excel (initial password{' '}
+              <span className="font-mono">password</span> for every new account).
+            </p>
           </div>
-          <Button onClick={openCreateDialog} className="shrink-0 rounded-xl shadow-sm">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Student Account
-          </Button>
+          {allowCreateStudent ? (
+            <div className="flex flex-wrap gap-2 justify-end shrink-0">
+              {allowArchivedPage ? (
+                <Button variant="outline" asChild className="rounded-xl shadow-sm">
+                  <Link to="/dashboard/archived">View archived</Link>
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" onClick={openBulkImportDialog} className="rounded-xl shadow-sm">
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Import from file
+              </Button>
+              <Button onClick={openCreateDialog} className="rounded-xl shadow-sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Student Account
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* Stats */}
@@ -467,13 +578,6 @@ export default function Students() {
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant={showArchived ? 'default' : 'outline'}
-            className="rounded-xl shrink-0"
-            onClick={() => setShowArchived(!showArchived)}
-          >
-            {showArchived ? 'Show Active' : 'Show Archived'}
-          </Button>
         </div>
 
         {/* Table / List */}
@@ -483,26 +587,25 @@ export default function Students() {
               <div>
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <GraduationCap className="h-5 w-5 text-primary" />
-                  {showArchived ? 'Archived Students' : 'Student Accounts'} ({filtered.length})
+                  Student Accounts ({filtered.length})
                 </CardTitle>
                 <CardDescription>
-                  {showArchived ? 'Restore archived students to make them active again' : 'Only the administrator can create student accounts'}
+                  Superadmin or faculty admin can add students individually or via CSV/Excel. Archiving requires confirmation;
+                  restore archived records from the Archived page.
                 </CardDescription>
               </div>
               {selectedIds.size > 0 && (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
-                  {showArchived ? (
-                    <Button variant="outline" size="sm" className="rounded-xl" onClick={bulkRestore}>
-                      <ArchiveRestore className="h-4 w-4 mr-1" />
-                      Restore
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="sm" className="rounded-xl" onClick={bulkArchive}>
-                      <Archive className="h-4 w-4 mr-1" />
-                      Archive
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={() => setBulkArchiveConfirmOpen(true)}
+                  >
+                    <Archive className="h-4 w-4 mr-1" />
+                    Archive
+                  </Button>
                 </div>
               )}
             </div>
@@ -511,14 +614,10 @@ export default function Students() {
             {filtered.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-border/70 rounded-xl bg-muted/20">
                 <GraduationCap className="h-14 w-14 mx-auto text-muted-foreground/50" />
-                <h3 className="mt-4 text-base font-semibold">
-                  {showArchived ? 'No archived students' : 'No students yet'}
-                </h3>
+                <h3 className="mt-4 text-base font-semibold">No students yet</h3>
                 <p className="text-muted-foreground mt-2 text-sm">
                   {searchQuery || departmentFilter !== 'all' || yearLevelFilter !== 'all'
                     ? 'Try adjusting your filters'
-                    : showArchived
-                    ? 'Archived students will appear here'
                     : 'Create a student account to get started'}
                 </p>
               </div>
@@ -576,13 +675,9 @@ export default function Students() {
                         variant="ghost"
                         size="icon"
                         className="h-9 w-9 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
-                        onClick={() => toggleArchive(student, !showArchived)}
+                        onClick={() => setArchiveConfirmStudent(student)}
                       >
-                        {showArchived ? (
-                          <ArchiveRestore className="h-4 w-4" />
-                        ) : (
-                          <Archive className="h-4 w-4" />
-                        )}
+                        <Archive className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -599,7 +694,8 @@ export default function Students() {
           <DialogHeader>
             <DialogTitle>Create student account</DialogTitle>
             <DialogDescription>
-              The student will use the email and password you set to sign in. They cannot register on their own.
+              Enter every field for this student, including a sign-in password and confirmation. Students cannot
+              self-register.
             </DialogDescription>
           </DialogHeader>
           <Form {...createForm}>
@@ -637,7 +733,20 @@ export default function Students() {
                   <FormItem>
                     <FormLabel>Password *</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} className="rounded-xl" />
+                      <PasswordInput autoComplete="new-password" placeholder="••••••••" {...field} className="rounded-xl" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createForm.control}
+                name="confirm_password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm password *</FormLabel>
+                    <FormControl>
+                      <PasswordInput autoComplete="new-password" placeholder="Repeat password" {...field} className="rounded-xl" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -808,8 +917,7 @@ export default function Students() {
                   <FormItem>
                     <FormLabel>New password</FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         autoComplete="new-password"
                         placeholder="Leave blank to keep current password"
                         {...field}
@@ -827,8 +935,7 @@ export default function Students() {
                   <FormItem>
                     <FormLabel>Confirm new password</FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         autoComplete="new-password"
                         placeholder="Repeat new password"
                         {...field}
@@ -858,6 +965,196 @@ export default function Students() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={bulkDialogOpen}
+        onOpenChange={(open) => {
+          setBulkDialogOpen(open);
+          if (!open) {
+            setBulkRows([]);
+            setBulkParseError(null);
+            setBulkFileName(null);
+            setBulkImportSummary(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+          }
+        }}
+      >
+        <DialogContent className="rounded-2xl sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import students from file</DialogTitle>
+            <DialogDescription>
+              Use a CSV or Excel file (.csv, .xlsx, .xls). Row 1 must include headers for{' '}
+              <strong>Name</strong>, <strong>Student ID</strong>, <strong>Year</strong>, and <strong>Course</strong> —
+              column order does not matter and extra columns are fine. Email is optional (generated from student ID when
+              missing). A random initial password is shown after each import. Maximum 500 data rows per file.
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={STUDENT_IMPORT_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              void onBulkFileSelected(f);
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="rounded-xl" onClick={downloadStudentImportTemplate}>
+              <Download className="h-4 w-4 mr-2" />
+              Download template
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="rounded-xl"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Choose CSV or Excel file
+            </Button>
+          </div>
+          {bulkFileName ? (
+            <p className="text-sm text-muted-foreground">
+              Selected: <span className="font-medium text-foreground">{bulkFileName}</span>
+            </p>
+          ) : null}
+          {bulkParseError ? (
+            <p className="text-sm text-destructive font-medium">{bulkParseError}</p>
+          ) : null}
+          {bulkRows.length > 0 && !bulkParseError ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Preview: <span className="tabular-nums">{bulkRows.length}</span> student(s) ready to import
+              </p>
+              <div className="max-h-[200px] overflow-auto rounded-xl border border-border/80">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/80 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-semibold">#</th>
+                      <th className="text-left p-2 font-semibold">Email</th>
+                      <th className="text-left p-2 font-semibold">Name</th>
+                      <th className="text-left p-2 font-semibold hidden sm:table-cell">ID</th>
+                      <th className="text-left p-2 font-semibold hidden sm:table-cell">Course</th>
+                      <th className="text-left p-2 font-semibold hidden md:table-cell">Year</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkRows.slice(0, 50).map((r, i) => (
+                      <tr key={`${r.email}-${r.rowNumber}`} className="border-t border-border/60">
+                        <td className="p-2 text-muted-foreground">{i + 1}</td>
+                        <td className="p-2 break-all">{r.email}</td>
+                        <td className="p-2">{r.full_name}</td>
+                        <td className="p-2 hidden sm:table-cell">{r.student_id}</td>
+                        <td className="p-2 hidden sm:table-cell">{r.course}</td>
+                        <td className="p-2 hidden md:table-cell">{r.year_level}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {bulkRows.length > 50 ? (
+                <p className="text-xs text-muted-foreground">Showing first 50 rows; all {bulkRows.length} will be imported.</p>
+              ) : null}
+            </div>
+          ) : null}
+          {bulkImportSummary ? (
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-2">
+              <p className="text-sm font-semibold">
+                Import finished:{' '}
+                <span className="text-emerald-600">{bulkImportSummary.created} created</span>
+                {bulkImportSummary.failed > 0 ? (
+                  <>
+                    {', '}
+                    <span className="text-destructive">{bulkImportSummary.failed} failed</span>
+                  </>
+                ) : null}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Initial password used:{' '}
+                <span className="font-mono font-medium text-foreground">{bulkImportSummary.defaultPassword}</span>
+              </p>
+              {bulkImportSummary.results.some((row) => !row.ok) ? (
+                <ul className="text-xs space-y-1 max-h-32 overflow-y-auto">
+                  {bulkImportSummary.results
+                    .filter((row) => !row.ok)
+                    .map((row) => (
+                      <li key={row.email}>
+                        <span className="font-mono">{row.email}</span>
+                        {' — '}
+                        <span className="text-destructive">
+                          {sanitizeUserFacingText(row.error ?? '', 'Could not add this student.')}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setBulkDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl"
+              disabled={bulkRows.length === 0 || !!bulkParseError || formLoading || !!bulkImportSummary}
+              onClick={() => void onBulkImportSubmit()}
+            >
+              {formLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Importing…
+                </>
+              ) : (
+                <>Import {bulkRows.length > 0 ? `${bulkRows.length} students` : 'students'}</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!archiveConfirmStudent} onOpenChange={(open) => !open && setArchiveConfirmStudent(null)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive this student?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{archiveConfirmStudent?.full_name || archiveConfirmStudent?.email}</strong> will be hidden from
+              the active list and cannot sign in until restored from the Archived page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiving}
+              onClick={() => archiveConfirmStudent && void performArchive([archiveConfirmStudent.id])}
+            >
+              {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Archive'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkArchiveConfirmOpen} onOpenChange={setBulkArchiveConfirmOpen}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive {selectedIds.size} student(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Selected students will be hidden from the active list and cannot sign in until restored from the Archived
+              page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiving}
+              onClick={() => void performArchive(Array.from(selectedIds))}
+            >
+              {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Archive'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

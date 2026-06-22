@@ -2,23 +2,22 @@ import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canManageStudents } from '@/lib/permissionsMatrix';
+import { apiErrorResponse, apiMsg } from '@/server/apiUserError';
 
 /** Session uses headers — must not be statically analyzed at build time. */
 export const dynamic = 'force-dynamic';
 
-function requireSuperadmin(session: any) {
+function requireStudentAdmin(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canManageStudents(roles));
 }
 
 export async function GET(req: Request) {
   try {
     const session = await getAppSession();
-    if (!requireSuperadmin(session)) {
-      return NextResponse.json(
-        { error: 'Unauthorized', detail: 'Superadmin session required. Sign out and sign in again if this persists.' },
-        { status: 401 }
-      );
+    if (!requireStudentAdmin(session)) {
+      return apiErrorResponse(apiMsg.forbidden, 403);
     }
 
     const url = new URL(req.url);
@@ -86,10 +85,20 @@ export async function GET(req: Request) {
       is_archived: u.profile?.isArchived ?? false,
     }));
 
-    return NextResponse.json({ students: mapped });
+    return NextResponse.json({
+      students: mapped,
+      archivedCount: await prisma.user.count({
+        where: {
+          roles: { some: { role: 'student' } },
+          profile: { isArchived: true },
+        },
+      }),
+    });
   } catch (e: unknown) {
     console.error('[GET /api/students]', e);
-    const message = e instanceof Error ? e.message : 'Unknown error';
-    return NextResponse.json({ error: 'Failed to load students', detail: message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Could not load the student list right now. Please try again shortly.' },
+      { status: 500 }
+    );
   }
 }

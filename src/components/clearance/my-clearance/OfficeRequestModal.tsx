@@ -15,23 +15,38 @@ import { cn } from '@/lib/utils';
 export interface OfficeRequirement {
   id: number;
   label: string;
-  type: 'checkbox' | 'document';
+  type: 'checkbox' | 'document' | 'office';
+  instructions?: string;
+  required?: boolean;
 }
 
 interface OfficeRequestModalProps {
   officeName: string;
   requirements: OfficeRequirement[];
+  /** When true, physical walk-in checkboxes count as already completed (pre-clearance gates). */
+  physicalPreVerified?: boolean;
+  /** When true, only `note` + combined `files` are sent (default student flow). */
+  legacySubmit?: boolean;
   onClose: () => void;
-  onSubmit: (payload: { note: string; files: File[] }) => Promise<void>;
+  onSubmit: (payload: {
+    note: string;
+    files: File[];
+    fulfillments?: { requirementId: number; documentFiles: File[]; physicalAttested?: boolean }[];
+  }) => Promise<void>;
 }
 
 export function OfficeRequestModal({
   officeName,
   requirements,
+  physicalPreVerified = false,
+  legacySubmit = true,
   onClose,
   onSubmit,
 }: OfficeRequestModalProps) {
-  const reqs = Array.isArray(requirements) ? requirements : [];
+  const reqs = useMemo(
+    () => (Array.isArray(requirements) ? requirements : []),
+    [requirements],
+  );
   const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>({});
   const [uploadedFiles, setUploadedFiles] = useState<Record<number, File[]>>({});
   const [note, setNote] = useState('');
@@ -68,15 +83,17 @@ export function OfficeRequestModal({
     const steps: { label: string; done: boolean }[] = [];
     reqs.forEach((r) => {
       if (r.type === 'checkbox') {
-        steps.push({ label: r.label, done: !!checkedItems[r.id] });
+        steps.push({ label: r.label, done: physicalPreVerified || !!checkedItems[r.id] });
+      } else if (r.type === 'office') {
+        steps.push({ label: r.label, done: true });
       } else {
         steps.push({ label: r.label, done: (uploadedFiles[r.id] || []).length > 0 });
       }
     });
-    steps.push({ label: 'Remarks / N/A field', done: note.trim().length > 0 });
+    steps.push({ label: 'Remarks', done: note.trim().length > 0 });
     const completed = steps.filter((s) => s.done).length;
     return { steps, completed, total: steps.length };
-  }, [checkedItems, uploadedFiles, note, reqs]);
+  }, [checkedItems, uploadedFiles, note, reqs, physicalPreVerified]);
 
   const isSubmitEnabled = completionStatus.completed === completionStatus.total;
   const progressPct =
@@ -101,7 +118,17 @@ export function OfficeRequestModal({
           files.push(...(uploadedFiles[r.id] || []));
         }
       });
-      await onSubmit({ note: note.trim(), files });
+      if (legacySubmit) {
+        await onSubmit({ note: note.trim(), files });
+        return;
+      }
+      const fulfillments = reqs.map((r) => ({
+        requirementId: r.id,
+        documentFiles: r.type === 'document' ? uploadedFiles[r.id] || [] : [],
+        physicalAttested:
+          r.type === 'checkbox' ? physicalPreVerified || !!checkedItems[r.id] : undefined,
+      }));
+      await onSubmit({ note: note.trim(), files, fulfillments });
     } finally {
       setIsSubmitting(false);
     }
@@ -115,7 +142,7 @@ export function OfficeRequestModal({
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex animate-ec-fade-in items-center justify-center bg-black/40 p-4 dark:bg-black/60"
+      className="fixed inset-0 z-50 flex animate-ec-modal-backdrop items-center justify-center bg-black/40 p-4 dark:bg-black/60"
     >
       <div
         className={cn(
@@ -159,8 +186,10 @@ export function OfficeRequestModal({
           {reqs.map((req, idx) => {
             const isDone =
               req.type === 'checkbox'
-                ? !!checkedItems[req.id]
-                : (uploadedFiles[req.id] || []).length > 0;
+                ? physicalPreVerified || !!checkedItems[req.id]
+                : req.type === 'office'
+                  ? true
+                  : (uploadedFiles[req.id] || []).length > 0;
 
             return (
               <div
@@ -193,6 +222,17 @@ export function OfficeRequestModal({
                 </div>
 
                 {req.type === 'checkbox' ? (
+                  physicalPreVerified ? (
+                    <div className="flex items-start gap-3 text-sm text-emerald-700 dark:text-emerald-400">
+                      <CircleCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                      <div>
+                        <p className="font-medium">{req.label}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Already verified in person at Faculty, CMO, or Guidance before clearance.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
                   <button
                     type="button"
                     className="flex w-full items-start gap-3 text-left"
@@ -219,6 +259,18 @@ export function OfficeRequestModal({
                       {req.label}
                     </span>
                   </button>
+                  )
+                ) : req.type === 'office' ? (
+                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                    <p className="font-medium">{req.label}</p>
+                    {req.instructions ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{req.instructions}</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Staff will confirm this in office after you submit.
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <div>
                     <div className="mb-2 flex items-center gap-2">
@@ -296,19 +348,23 @@ export function OfficeRequestModal({
             <div className="mb-2 flex items-center gap-2">
               <span className="text-xs text-gray-400 dark:text-gray-500">Final step</span>
             </div>
-            <label className="mb-2 block text-sm text-gray-500 dark:text-gray-400">
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Remarks <span className="text-destructive">*</span>
+            </label>
+            <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
               If you have no violations, type{' '}
               <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-[#1a3c5e] dark:bg-blue-900/30 dark:text-blue-400">
                 N/A
-              </span>{' '}
-              and submit.
-            </label>
+              </span>
+              .
+            </p>
             <textarea
               className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-[#1a3c5e] focus:outline-none focus:ring-2 focus:ring-[#1a3c5e]/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:focus:border-blue-500 dark:focus:ring-blue-500/20"
               rows={3}
-              placeholder="Type N/A or describe your situation..."
+              placeholder="Required — type N/A or describe your situation..."
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              required
             />
           </div>
 

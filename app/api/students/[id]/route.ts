@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { canManageStudents } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireStudentAdmin(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canManageStudents(roles));
 }
 
 const PatchSchema = z.object({
@@ -19,14 +21,14 @@ const PatchSchema = z.object({
 
 export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireStudentAdmin(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const json = await req.json().catch(() => null);
   const parsed = PatchSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const id = ctx.params.id;
@@ -35,11 +37,11 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     include: { roles: true, profile: true },
   });
   if (!user?.profile) {
-    return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+    return NextResponse.json({ error: 'That student could not be found.' }, { status: 404 });
   }
   const isStudent = user.roles.some((r) => r.role === 'student');
   if (!isStudent) {
-    return NextResponse.json({ error: 'Not a student account' }, { status: 403 });
+    return NextResponse.json({ error: 'That account is not a student.' }, { status: 403 });
   }
 
   const p = parsed.data;
@@ -50,7 +52,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     p.course !== undefined;
   const hasPassword = Boolean(p.new_password);
   if (!hasProfileUpdate && !hasPassword) {
-    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+    return NextResponse.json({ error: 'Nothing was changed.' }, { status: 400 });
   }
 
   await prisma.$transaction(async (tx) => {

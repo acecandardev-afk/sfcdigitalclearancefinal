@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useUserRole } from '@/hooks/useUserRole';
+import { canViewAdminReports } from '@/lib/permissionsMatrix';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +38,7 @@ import {
 import { toast } from 'sonner';
 import { getStatusLabel } from '@/lib/terms';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 
 type ClearanceStatus = 'pending' | 'in_progress' | 'approved' | 'rejected';
 
@@ -110,7 +112,8 @@ interface SignatureRow {
 
 export default function Reports() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useUserRole();
+  const { roles, loading: roleLoading } = useUserRole();
+  const allowReports = useMemo(() => canViewAdminReports(roles), [roles]);
 
   const [activeTab, setActiveTab] = useState<'clearances' | 'signatures'>('clearances');
   const [allDates, setAllDates] = useState(false);
@@ -126,10 +129,10 @@ export default function Reports() {
   const [signatureRows, setSignatureRows] = useState<SignatureRow[]>([]);
 
   useEffect(() => {
-    if (!roleLoading && !isSuperAdmin()) {
+    if (!roleLoading && !allowReports) {
       navigate('/dashboard');
     }
-  }, [roleLoading, isSuperAdmin, navigate]);
+  }, [roleLoading, allowReports, navigate]);
 
   const rangeIso = useMemo(() => {
     if (allDates) return { from: null as string | null, to: null as string | null };
@@ -160,14 +163,14 @@ export default function Reports() {
         params.set('to', toDate);
       }
       const res = await fetch(`/api/admin/reports?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load clearance report.'));
       const json = await res.json();
       const rows = (json.clearances ?? []) as ClearanceRow[];
       setClearanceRows(rows);
       toast.success(`Loaded ${rows.length} clearance record(s).`);
     } catch (e) {
       console.error(e);
-      toast.error(safeActionErrorMessage(e, 'Failed to load clearance report'));
+      toast.error(safeActionErrorMessage(e, 'Could not load clearance report.'));
     } finally {
       setLoading(false);
     }
@@ -193,7 +196,7 @@ export default function Reports() {
       }
 
       const res = await fetch(`/api/admin/reports?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load signature report.'));
       const json = await res.json();
       const merged = (json.signatures ?? []) as SignatureRow[];
 
@@ -208,7 +211,7 @@ export default function Reports() {
       toast.success(`Loaded ${merged.length} signature step(s).`);
     } catch (e) {
       console.error(e);
-      toast.error(safeActionErrorMessage(e, 'Failed to load signature report'));
+      toast.error(safeActionErrorMessage(e, 'Could not load signature report.'));
     } finally {
       setLoading(false);
     }
@@ -279,7 +282,6 @@ export default function Reports() {
       'School ID',
       'Student email',
       'Course',
-      'Notes',
       'Remarks',
     ];
     const rows = signatureRows.map((r) => [
@@ -298,7 +300,6 @@ export default function Reports() {
       r.student.student_id ?? '',
       r.student.email ?? '',
       r.student.course ?? '',
-      r.notes ?? '',
       r.remarks ?? '',
     ]);
     downloadCsv(
@@ -357,13 +358,13 @@ export default function Reports() {
     );
   }
 
-  if (!isSuperAdmin()) {
+  if (!allowReports) {
     return null;
   }
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
+      <div className="w-full min-w-0 p-6 lg:p-8 xl:px-10 space-y-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-2">

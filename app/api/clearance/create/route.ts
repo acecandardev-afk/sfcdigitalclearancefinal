@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { canRequestStudentClearance } from '@/lib/permissionsMatrix';
+import {
+  getStudentPreClearanceStatus,
+  preClearanceBlockMessage,
+} from '@/server/preClearanceService';
 
 const BodySchema = z.object({
   title: z.string().min(1).max(200),
@@ -30,17 +36,25 @@ const BodySchema = z.object({
 export async function POST(req: Request) {
   const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
-  if (!session?.user || !roles.includes('student')) {
+  if (!session?.user || !canRequestStudentClearance(roles)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const json = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const studentId = (session.user as any).id as string;
+
+  const preClearance = await getStudentPreClearanceStatus(studentId);
+  if (!preClearance.allComplete) {
+    return NextResponse.json(
+      { error: preClearanceBlockMessage(preClearance.missingGates) },
+      { status: 400 }
+    );
+  }
 
   const clearance = await prisma.$transaction(async (tx) => {
     const created = await tx.clearanceRequest.create({

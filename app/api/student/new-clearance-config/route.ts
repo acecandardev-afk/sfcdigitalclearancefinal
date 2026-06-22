@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canRequestStudentClearance } from '@/lib/permissionsMatrix';
+import {
+  getStudentPreClearanceStatus,
+  preClearanceBlockMessage,
+} from '@/server/preClearanceService';
 
 export async function GET() {
   const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
-  if (!session?.user || !roles.includes('student')) {
+  if (!session?.user || !canRequestStudentClearance(roles)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const studentId = (session.user as any).id as string;
+
+  const preClearance = await getStudentPreClearanceStatus(studentId);
+  const preClearanceComplete = preClearance.allComplete;
 
   const security = await prisma.systemSetting.findUnique({
     where: { key: 'security' },
@@ -65,5 +73,12 @@ export async function GET() {
       authority_sequence_order: r.signatory.authoritySequenceOrder ?? null,
     }));
 
-  return NextResponse.json({ allowNewClearance, signatories });
+  return NextResponse.json({
+    allowNewClearance,
+    preClearanceComplete,
+    preClearanceBlockReason: preClearanceComplete
+      ? null
+      : preClearanceBlockMessage(preClearance.missingGates),
+    signatories,
+  });
 }

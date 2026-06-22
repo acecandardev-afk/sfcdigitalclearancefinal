@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { ArrowLeft, Upload, X, Loader2, FileText, Send, User, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage, userErrorFromApi } from '@/lib/userMessages';
 
 interface DefaultSignatory {
   id: string;
@@ -29,6 +31,8 @@ export default function NewClearance() {
   const [loading, setLoading] = useState(false);
   const [loadingSignatories, setLoadingSignatories] = useState(true);
   const [allowNewClearance, setAllowNewClearance] = useState<boolean | null>(null);
+  const [preClearanceComplete, setPreClearanceComplete] = useState<boolean | null>(null);
+  const [preClearanceBlockReason, setPreClearanceBlockReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -37,16 +41,18 @@ export default function NewClearance() {
       try {
         setLoadingSignatories(true);
         const res = await fetch('/api/student/new-clearance-config', { credentials: 'include' });
-        if (!res.ok) throw new Error('Failed to load signatories');
+        if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load signatories. Please contact the administrator.'));
         const json = await res.json();
         const list = (json.signatories || []) as DefaultSignatory[];
         setSignatories(list);
         setSelectedSignatoryIds(new Set(list.map((s) => s.id)));
         setAllowNewClearance((json.allowNewClearance as boolean) ?? true);
+        setPreClearanceComplete((json.preClearanceComplete as boolean) ?? true);
+        setPreClearanceBlockReason((json.preClearanceBlockReason as string | null) ?? null);
       } catch (e) {
         console.error(e);
         setAllowNewClearance(true);
-        toast.error('Failed to load signatories. Please contact the administrator.');
+        toast.error(safeActionErrorMessage(e, 'Could not load signatories. Please contact the administrator.'));
       } finally {
         setLoadingSignatories(false);
       }
@@ -79,6 +85,10 @@ export default function NewClearance() {
   };
 
   const handleSubmit = async () => {
+    if (preClearanceComplete === false) {
+      toast.error(preClearanceBlockReason || 'Complete physical verification at Faculty, CMO, and Guidance first.');
+      return;
+    }
     if (allowNewClearance === false) {
       toast.error('Only one pending clearance is allowed. Complete or cancel your current request first.');
       return;
@@ -107,7 +117,7 @@ export default function NewClearance() {
           body: form,
         });
         const upJson = await up.json().catch(() => ({}));
-        if (!up.ok) throw new Error(upJson?.error || 'Upload failed');
+        if (!up.ok) throw new Error(userErrorFromApi(upJson, 'Could not upload the file. Try again or use a smaller file.'));
         uploadedFiles.push({
           file_name: String(upJson.file_name ?? file.name),
           content_type: (upJson.content_type ?? null) as string | null,
@@ -137,13 +147,13 @@ export default function NewClearance() {
       });
 
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to submit request');
+      if (!res.ok) throw new Error(userErrorFromApi(json, 'Could not submit your clearance request. Try again.'));
 
       toast.success('Clearance request submitted! View status in My Requests.');
       navigate('/dashboard/clearances');
     } catch (error) {
       console.error('Error creating clearance:', error);
-      toast.error('Failed to submit request');
+      toast.error(safeActionErrorMessage(error, 'Could not submit your clearance request. Try again.'));
     } finally {
       setLoading(false);
     }

@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
+import { apiErrorResponse, apiMsg, apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { canManageBulkAssign } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireBulkAdmin(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canManageBulkAssign(roles));
 }
 
 const BodySchema = z.object({
@@ -40,17 +42,14 @@ function partitionSignatoriesForBulk(
 
 export async function POST(req: Request) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
-    return NextResponse.json(
-      { error: 'Unauthorized', detail: 'Superadmin session required.' },
-      { status: 401 }
-    );
+  if (!requireBulkAdmin(session)) {
+    return apiErrorResponse(apiMsg.forbidden, 403);
   }
 
   const json = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Validation failed', issues: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const requestedIds = [...new Set(parsed.data.studentIds)];
@@ -64,29 +63,23 @@ export async function POST(req: Request) {
   });
   const studentIds = validStudents.map((u) => u.id);
   if (studentIds.length === 0) {
-    return NextResponse.json(
-      {
-        error: 'No valid students in selection',
-        detail: 'Choose accounts that have the student role. Refresh the list and try again.',
-      },
-      { status: 400 }
+    return apiErrorResponse(
+      'No valid students in your selection. Choose student accounts and try again.',
+      400
     );
   }
 
   const signatories = await prisma.signatory.findMany({
-    where: { isActive: true },
+    where: { isActive: true, isArchived: false },
     orderBy: [{ signatoryGroup: 'asc' }, { name: 'asc' }],
   });
 
   const { standardSignatories, authoritySignatories } = partitionSignatoriesForBulk(signatories);
 
   if (standardSignatories.length === 0 && authoritySignatories.length === 0) {
-    return NextResponse.json(
-      {
-        error: 'No active signatories configured',
-        detail: 'Add at least one active signatory (Standard or Authority) in Signatories before bulk assign.',
-      },
-      { status: 400 }
+    return apiErrorResponse(
+      'No active signatories are set up. Add signatories under Settings → Signatories, then try again.',
+      400
     );
   }
 
@@ -127,16 +120,17 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     console.error('[POST /api/admin/bulk-assign-signatories]', e);
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
-      return NextResponse.json(
-        {
-          error: 'Could not save assignments',
-          detail: e.code === 'P2002' ? 'Duplicate assignment row — try again after refresh.' : e.message,
-        },
-        { status: 409 }
+      return apiErrorResponse(
+        e.code === 'P2002'
+          ? 'Some assignments already exist. Refresh the page and try again.'
+          : 'Something conflicted while saving. Refresh the page and try again.',
+        409
       );
     }
-    const message = e instanceof Error ? e.message : 'Unknown error';
-    return NextResponse.json({ error: 'Could not save assignments', detail: message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Could not save assignments. Please try again in a moment.' },
+      { status: 500 }
+    );
   }
 
   const slotsPerStudent = standardSignatories.length + authoritySignatories.length;

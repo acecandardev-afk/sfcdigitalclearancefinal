@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, loading: authLoading, signOut } = useAuth();
-  const { roles, loading: rolesLoading, isSuperAdmin, isSignatory, isStudent } = useUserRole();
+  const { roles, loading: rolesLoading, isSuperAdmin, isSignatory, isFacultyAdmin, isHrAdmin } = useUserRole();
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -62,13 +62,16 @@ export default function Dashboard() {
     );
   }
 
-  // Render dashboard based on role priority: superadmin > signatory > student
+  // Role priority: superadmin > signatory > faculty/HR admin (manage system; no student clearance) > student
   const renderDashboard = () => {
     if (isSuperAdmin()) {
       return <SuperAdminDashboard />;
     }
     if (isSignatory()) {
       return <SignatoryDashboard />;
+    }
+    if (isFacultyAdmin() || isHrAdmin()) {
+      return <SuperAdminDashboard />;
     }
     return <StudentDashboard />;
   };

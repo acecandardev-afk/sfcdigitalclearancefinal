@@ -3,9 +3,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/lib/auth';
+import { useUserRole } from '@/hooks/useUserRole';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import {
   Select,
   SelectContent,
@@ -19,6 +21,8 @@ import { Separator } from '@/components/ui/separator';
 import { User, KeyRound, Loader2, Save, Shield, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { programCourseSelectOptions, yearLevelSelectOptions } from '@/constants/academicOptions';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage, userErrorFromApi } from '@/lib/userMessages';
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -33,7 +37,9 @@ type PasswordFormData = z.infer<typeof passwordSchema>;
 
 const profileSchema = z.object({
   full_name: z.string().trim().min(1, 'Full name is required'),
+  /** Student: year level; employee: job title (stored in yearLevel) */
   year_level: z.string().trim().optional(),
+  /** Student: program; employee: department/office (stored in course) */
   course: z.string().trim().optional(),
   address: z.string().trim().optional(),
   age: z
@@ -51,6 +57,11 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 
 export default function AccountSettings() {
   const { user } = useAuth();
+  const { isStudent, isSignatory, isSuperAdmin, loading: roleLoading } = useUserRole();
+  /** Not the student-only self-service line; same idea as `isPureStudent` elsewhere. */
+  const isPureStudent = isStudent() && !isSignatory() && !isSuperAdmin();
+  /** Employee (non-student-only): faculty, signatories, admins, and mixed roles. */
+  const isStaff = !isPureStudent;
   const [changingPassword, setChangingPassword] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -76,13 +87,13 @@ export default function AccountSettings() {
   });
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || roleLoading) return;
     let cancelled = false;
     void (async () => {
       setLoadingProfile(true);
       try {
         const res = await fetch('/api/me/profile', { credentials: 'include' });
-        if (!res.ok) throw new Error('Failed to load profile');
+        if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load your profile.'));
         const json = await res.json();
         if (cancelled) return;
         const row = (json.profile || {}) as any;
@@ -103,7 +114,7 @@ export default function AccountSettings() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, profileForm]);
+  }, [user?.id, profileForm, roleLoading]);
 
   const onProfileSubmit = async (data: ProfileFormData) => {
     if (!user?.id) return;
@@ -122,11 +133,11 @@ export default function AccountSettings() {
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to update profile');
+      if (!res.ok) throw new Error(userErrorFromApi(json, 'Could not update your profile. Try again.'));
       toast.success('Profile updated successfully');
     } catch (e: unknown) {
       console.error('Error updating profile:', e);
-      toast.error(e instanceof Error ? e.message : 'Failed to update profile');
+      toast.error(safeActionErrorMessage(e, 'Could not update your profile. Try again.'));
     } finally {
       setSavingProfile(false);
     }
@@ -147,8 +158,7 @@ export default function AccountSettings() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = String(json?.error || 'Failed to change password');
-        toast.error(msg);
+        toast.error(userErrorFromApi(json, 'Could not change your password. Check your current password and try again.'));
         setChangingPassword(false);
         return;
       }
@@ -157,7 +167,7 @@ export default function AccountSettings() {
       passwordForm.reset();
     } catch (error: unknown) {
       console.error('Error changing password:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to change password');
+      toast.error(safeActionErrorMessage(error, 'Could not change your password. Check your current password and try again.'));
     } finally {
       setChangingPassword(false);
     }
@@ -165,12 +175,13 @@ export default function AccountSettings() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-2xl">
+      <div className="app-page min-h-screen bg-gradient-to-br from-slate-50/80 via-blue-50/20 to-transparent px-4 py-6 dark:from-gray-950/50 dark:via-gray-900/30 sm:px-6 lg:px-8">
+        <div className="w-full min-w-0 space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-display font-bold flex items-center gap-3">
             <User className="h-7 w-7 text-primary" />
-            Account Settings
+            Profile & Settings
           </h1>
           <p className="text-muted-foreground mt-1">
             Manage your account and security settings
@@ -196,14 +207,18 @@ export default function AccountSettings() {
           </CardContent>
         </Card>
 
-        {/* Profile */}
+        {/* Profile: student (program) vs employee (institutional) */}
         <Card className="shadow-card">
           <CardHeader>
             <CardTitle className="font-display flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
-              Profile
+              {isStaff ? 'Employee profile' : 'Student profile'}
             </CardTitle>
-            <CardDescription>Update your personal information</CardDescription>
+            <CardDescription>
+              {isStaff
+                ? 'These details identify you in the system and can prefill your institutional (employee) clearance. They are not the student course form.'
+                : 'Update your personal and academic information used for student clearance.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...profileForm}>
@@ -222,102 +237,146 @@ export default function AccountSettings() {
                   )}
                 />
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={profileForm.control}
-                    name="year_level"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Year level</FormLabel>
-                        <Select
-                          disabled={loadingProfile}
-                          value={field.value ? field.value : '__none__'}
-                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                        >
+                {isStaff ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={profileForm.control}
+                      name="course"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Department / office</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select year level" />
-                            </SelectTrigger>
+                            <Input
+                              placeholder="e.g. Office of the Registrar"
+                              {...field}
+                              disabled={loadingProfile}
+                            />
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value="__none__">Not set</SelectItem>
-                            {yearLevelSelectOptions(field.value).map((y) => (
-                              <SelectItem key={y} value={y}>
-                                {y}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={profileForm.control}
-                    name="course"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Course</FormLabel>
-                        <Select
-                          disabled={loadingProfile}
-                          value={field.value ? field.value : '__none__'}
-                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                        >
+                          <p className="text-xs text-muted-foreground">Used when you request institutional clearance.</p>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={profileForm.control}
+                      name="year_level"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Position</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select program" />
-                            </SelectTrigger>
+                            <Input
+                              placeholder="e.g. Administrative Assistant II"
+                              {...field}
+                              disabled={loadingProfile}
+                            />
                           </FormControl>
-                          <SelectContent className="max-h-[280px]">
-                            <SelectItem value="__none__">Not set</SelectItem>
-                            {programCourseSelectOptions(field.value).map((c) => (
-                              <SelectItem key={c} value={c}>
-                                {c}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={profileForm.control}
+                      name="year_level"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Year level</FormLabel>
+                          <Select
+                            disabled={loadingProfile}
+                            value={field.value ? field.value : '__none__'}
+                            onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select year level" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">Not set</SelectItem>
+                              {yearLevelSelectOptions(field.value).map((y) => (
+                                <SelectItem key={y} value={y}>
+                                  {y}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <FormField
-                  control={profileForm.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Address</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Your address" {...field} disabled={loadingProfile} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    <FormField
+                      control={profileForm.control}
+                      name="course"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Course</FormLabel>
+                          <Select
+                            disabled={loadingProfile}
+                            value={field.value ? field.value : '__none__'}
+                            onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select program" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="max-h-[280px]">
+                              <SelectItem value="__none__">Not set</SelectItem>
+                              {programCourseSelectOptions(field.value).map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
 
-                <FormField
-                  control={profileForm.control}
-                  name="age"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Age</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          placeholder="e.g. 18"
-                          {...field}
-                          value={field.value === undefined ? '' : String(field.value)}
-                          disabled={loadingProfile}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {!isSignatory() && (
+                  <>
+                    <FormField
+                      control={profileForm.control}
+                      name="address"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Address</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Your address" {...field} disabled={loadingProfile} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={profileForm.control}
+                      name="age"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Age</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder="e.g. 18"
+                              {...field}
+                              value={field.value === undefined ? '' : String(field.value)}
+                              disabled={loadingProfile}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
 
                 <div className="flex justify-end pt-2">
                   <Button type="submit" disabled={savingProfile || loadingProfile}>
@@ -360,7 +419,7 @@ export default function AccountSettings() {
                     <FormItem>
                       <FormLabel>Current Password</FormLabel>
                       <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
+                        <PasswordInput placeholder="••••••••" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -376,7 +435,7 @@ export default function AccountSettings() {
                     <FormItem>
                       <FormLabel>New Password</FormLabel>
                       <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
+                        <PasswordInput placeholder="••••••••" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -390,7 +449,7 @@ export default function AccountSettings() {
                     <FormItem>
                       <FormLabel>Confirm New Password</FormLabel>
                       <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
+                        <PasswordInput placeholder="••••••••" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -416,6 +475,7 @@ export default function AccountSettings() {
             </Form>
           </CardContent>
         </Card>
+        </div>
       </div>
     </DashboardLayout>
   );

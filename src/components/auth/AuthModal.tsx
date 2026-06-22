@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { friendlyFetchError, friendlySignInError } from '@/lib/userMessages';
 import { Loader2, Mail, Lock, ArrowLeft } from 'lucide-react';
 
 interface AuthModalProps {
@@ -33,7 +35,7 @@ export default function AuthModal({ open, onOpenChange }: AuthModalProps) {
     setIsLoading(true);
     const { error } = await signIn(email, password);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlySignInError(error.message));
     } else {
       toast.success('Welcome back!');
       onOpenChange(false);
@@ -51,7 +53,7 @@ export default function AuthModal({ open, onOpenChange }: AuthModalProps) {
     setIsLoading(true);
     const { error } = await resetPassword(email.trim());
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyFetchError(error, 'Could not send the reset email. Try again or contact your administrator.'));
     } else {
       setForgotSent(true);
       toast.success('Check your email for the reset link');
@@ -148,9 +150,8 @@ export default function AuthModal({ open, onOpenChange }: AuthModalProps) {
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
+                  <PasswordInput
                     id="modal-password"
-                    type="password"
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

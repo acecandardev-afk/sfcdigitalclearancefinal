@@ -6,6 +6,8 @@ export interface UiStepRow {
   id: string;
   signatoryId: string;
   sequenceOrder: number;
+  /** Broad form section (e.g. Student & Academic Leadership). */
+  department?: string;
   office: string;
   officer: string;
   uiStatus: UiStepStatus;
@@ -13,6 +15,8 @@ export interface UiStepRow {
   schedule: string;
   remarks: string;
   requirements: OfficeRequirement[];
+  hasDbRequirements?: boolean;
+  officeVerificationPending?: boolean;
   signatureId: string | null;
   signatoryGroup: 'standard' | 'authority';
   authoritySequenceOrder: number | null;
@@ -34,9 +38,12 @@ export function parseRequirements(raw: unknown): OfficeRequirement[] {
     const o = item as Record<string, unknown>;
     const id = typeof o.id === 'number' ? o.id : Number(o.id);
     const label = typeof o.label === 'string' ? o.label : '';
-    const type = o.type === 'document' || o.type === 'checkbox' ? o.type : 'checkbox';
+    const type =
+      o.type === 'document' || o.type === 'checkbox' || o.type === 'office' ? o.type : 'checkbox';
     if (!Number.isFinite(id) || !label) continue;
-    out.push({ id, label, type });
+    const instructions = typeof o.instructions === 'string' ? o.instructions : undefined;
+    const required = typeof o.required === 'boolean' ? o.required : true;
+    out.push({ id, label, type, instructions, required });
   }
   return out.length ? out : DEFAULT_REQUIREMENTS;
 }

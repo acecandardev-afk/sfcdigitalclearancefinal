@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canRequestStudentClearance, isHrAdmin, isStudentRecordsElevation } from '@/lib/permissionsMatrix';
 
 function getRoles(session: any): string[] {
   return ((session as any)?.user?.roles ?? []) as string[];
@@ -13,22 +14,21 @@ export async function GET(req: Request) {
   }
 
   const roles = getRoles(session);
-  const isSuperadmin = roles.includes('superadmin');
-  const isStudent = roles.includes('student');
+  const isStaffAdmin = isStudentRecordsElevation(roles) || isHrAdmin(roles);
+  const canRequest = canRequestStudentClearance(roles);
 
-  const where = isSuperadmin
-    ? {}
-    : isStudent
-      ? { studentId: (session.user as any).id }
-      : {};
+  const where = {
+    isArchived: false,
+    ...(isStaffAdmin ? {} : canRequest ? { studentId: (session.user as any).id } : {}),
+  };
 
   // For signatories we don't use this endpoint yet (they have dedicated endpoints)
-  if (!isSuperadmin && !isStudent) {
+  if (!isStaffAdmin && !canRequest) {
     return NextResponse.json({ clearances: [] });
   }
 
   const url = new URL(req.url);
-  const includeSignatures = url.searchParams.get('include') === 'signatures' && isStudent;
+  const includeSignatures = url.searchParams.get('include') === 'signatures' && canRequest;
 
   if (includeSignatures) {
     const rows = await prisma.clearanceRequest.findMany({

@@ -6,8 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Plus, FileText, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import ClearanceProgressTimeline from '@/components/clearance/ClearanceProgressTimeline';
 import StudentClearanceInsights from '@/components/dashboard/StudentClearanceInsights';
 import { TERMS, getStatusLabel } from '@/lib/terms';
@@ -61,7 +63,7 @@ export default function StudentDashboard() {
   const fetchClearances = async () => {
     try {
       const res = await fetch('/api/clearances?include=signatures', { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load your requests.'));
       const json = await res.json();
       const data = (json.clearances ?? []) as ClearanceRequest[];
 
@@ -94,7 +96,7 @@ export default function StudentDashboard() {
       });
     } catch (error) {
       console.error('Error fetching clearances:', error);
-      toast.error('Failed to load requests');
+      toast.error(safeActionErrorMessage(error, 'Could not load your requests.'));
     } finally {
       setLoading(false);
     }
@@ -167,6 +169,34 @@ export default function StudentDashboard() {
         { name: 'Pending', value: signatoryProgress.pending, fill: '#eab308' },
       ].filter((d) => d.value > 0)
     : [];
+
+  const requestsLineData = (() => {
+    const monthMap = new Map<string, { month: string; total: number; signed: number; pending: number }>();
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthMap.set(`${d.getFullYear()}-${d.getMonth()}`, {
+        month: d.toLocaleDateString('en-US', { month: 'short' }),
+        total: 0,
+        signed: 0,
+        pending: 0,
+      });
+    }
+
+    for (const c of clearances) {
+      const dt = new Date(c.created_at);
+      const key = `${dt.getFullYear()}-${dt.getMonth()}`;
+      const bucket = monthMap.get(key);
+      if (!bucket) continue;
+      bucket.total += 1;
+      if (c.status === 'approved') {
+        bucket.signed += 1;
+      } else if (c.status === 'pending' || c.status === 'in_progress') {
+        bucket.pending += 1;
+      }
+    }
+    return Array.from(monthMap.values());
+  })();
 
   return (
     <div className="app-page space-y-8 min-h-screen bg-gradient-to-br from-slate-50/80 via-blue-50/20 to-transparent dark:from-gray-950/50 dark:via-gray-900/30">
@@ -278,6 +308,29 @@ export default function StudentDashboard() {
           color="bg-success/10 text-success"
         />
       </div>
+
+      <Card className="border border-border/60 rounded-xl shadow-sm bg-card overflow-hidden">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">Request trend</CardTitle>
+          <CardDescription>Total requests, signed, and pending (last 6 months)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={requestsLineData} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="total" name="Total Requests" stroke="#2563eb" strokeWidth={2} />
+                <Line type="monotone" dataKey="signed" name="Signed" stroke="#10b981" strokeWidth={2} />
+                <Line type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Clearances with Filter */}
       <Card className="border border-border/60 rounded-xl shadow-sm bg-card overflow-hidden">

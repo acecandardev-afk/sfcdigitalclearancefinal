@@ -1,5 +1,5 @@
 /**
- * One-off: create Auth user for signatory1@sfc-g.edu.ph, link signatories row, set role signatory.
+ * One-off: create Auth user for signatory1@gmail.com, link signatories row, set role signatory.
  * Run: npm run activate:signatory
  *
  * Requires: VITE_SUPABASE_URL (or SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY in .env
@@ -19,7 +19,7 @@ try {
 
 import { createClient } from '@supabase/supabase-js';
 
-const EMAIL = 'signatory1@sfc-g.edu.ph';
+const EMAIL = 'signatory1@gmail.com';
 const PASSWORD = 'test1234';
 const DISPLAY_NAME = 'Signatory One';
 
@@ -48,11 +48,12 @@ async function main() {
   console.log(`Activating ${EMAIL} …\n`);
 
   // Ensure a signatories row exists for this email
-  let { data: sig, error: sigLookupErr } = await supabase
+  const { data: sigData, error: sigLookupErr } = await supabase
     .from('signatories')
     .select('id, user_id, name')
     .eq('email', EMAIL)
     .maybeSingle();
+  let sig = sigData;
 
   if (sigLookupErr) {
     console.error('signatories lookup:', sigLookupErr.message);

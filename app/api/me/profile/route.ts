@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
@@ -36,7 +37,9 @@ export async function GET() {
 
 const PatchSchema = z.object({
   full_name: z.string().trim().min(1).max(200),
-  year_level: z.string().trim().max(50).nullable().optional(),
+  /** Year level (students) or position / job title (employee) */
+  year_level: z.string().trim().max(200).nullable().optional(),
+  /** Program (students) or department / office (employee) */
   course: z.string().trim().max(200).nullable().optional(),
   address: z.string().trim().max(500).nullable().optional(),
   age: z.number().int().min(1).max(120).nullable().optional(),
@@ -51,7 +54,7 @@ export async function PATCH(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = PatchSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const userId = (session.user as any).id as string;

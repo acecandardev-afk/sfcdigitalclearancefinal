@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { canViewAdminReports } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireReportsViewer(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canViewAdminReports(roles));
 }
 
 export async function GET(req: Request) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) {
+  if (!requireReportsViewer(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -103,7 +104,6 @@ export async function GET(req: Request) {
         created_at:
           (s as { createdAt?: Date | null }).createdAt?.toISOString() ?? s.signedAt?.toISOString() ?? null,
         sequence_order: s.sequenceOrder,
-        notes: s.notes,
         remarks: s.remarks,
         signatories: {
           name: s.signatory.name,
@@ -131,5 +131,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ signatures: signatureRows });
   }
 
-  return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+  return NextResponse.json({ error: 'Choose a valid report type and try again.' }, { status: 400 });
 }

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { canRequestStudentClearance } from '@/lib/permissionsMatrix';
 
 async function assertStudentOwnsClearance(clearanceId: string, studentId: string) {
   const cr = await prisma.clearanceRequest.findUnique({
@@ -14,7 +16,7 @@ async function assertStudentOwnsClearance(clearanceId: string, studentId: string
 export async function GET(_req: Request, ctx: { params: { id: string; signatoryId: string } }) {
   const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
-  if (!session?.user || !roles.includes('student')) {
+  if (!session?.user || !canRequestStudentClearance(roles)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -41,7 +43,7 @@ const PutSchema = z.object({
 export async function PUT(req: Request, ctx: { params: { id: string; signatoryId: string } }) {
   const session = await getAppSession();
   const roles = ((session as any)?.user?.roles ?? []) as string[];
-  if (!session?.user || !roles.includes('student')) {
+  if (!session?.user || !canRequestStudentClearance(roles)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -56,7 +58,7 @@ export async function PUT(req: Request, ctx: { params: { id: string; signatoryId
   const json = await req.json().catch(() => null);
   const parsed = PutSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   await prisma.studentClearanceStepNote.upsert({

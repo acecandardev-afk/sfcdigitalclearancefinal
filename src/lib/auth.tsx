@@ -1,6 +1,7 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { SessionProvider, signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from 'next-auth/react';
 import { friendlySignInError } from '@/lib/userMessages';
+import { ClearanceTypeProvider } from '@/lib/clearanceTypeContext';
 
 type AppUser = {
   id?: string;
@@ -25,18 +26,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 function AuthBridge({ children }: { children: ReactNode }) {
   const { data, status } = useSession();
   const loading = status === 'loading';
-  const user: AppUser | null = data?.user
-    ? {
-        id: (data.user as any).id,
-        email: data.user.email,
-        roles: (data.user as any).roles ?? [],
-      }
-    : null;
 
-  const signIn = async (email: string, password: string) => {
+  /** `useSession` can yield a new `data.user` reference each render; stabilize to avoid effect storms downstream. */
+  const id = (data?.user as { id?: string } | undefined)?.id;
+  const email = data?.user?.email ?? null;
+  const rolesRaw = ((data?.user as { roles?: string[] } | undefined)?.roles ?? []) as string[];
+  const rolesKey = rolesRaw.join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- rolesKey fingerprints rolesRaw; rolesRaw ref can churn from useSession
+  const roles = useMemo(() => [...rolesRaw], [rolesKey]);
+
+  const user: AppUser | null = useMemo(() => {
+    if (status !== 'authenticated' || !id) return null;
+    return { id, email, roles };
+  }, [status, id, email, roles]);
+
+  const signIn = useCallback(async (emailArg: string, password: string) => {
     try {
       const res = await nextAuthSignIn('credentials', {
-        email: email.trim().toLowerCase(),
+        email: emailArg.trim().toLowerCase(),
         password,
         redirect: false,
       });
@@ -47,25 +54,25 @@ function AuthBridge({ children }: { children: ReactNode }) {
     } catch {
       return { error: new Error('Unable to sign in. Please try again.') };
     }
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await nextAuthSignOut({ redirect: false });
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        signIn,
-        signOut,
-        resetPassword: async () => ({ error: new Error('Password reset is not implemented yet.') }),
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const resetPassword = useCallback(
+    async () => ({
+      error: new Error('Password reset is not available. Ask your administrator to reset your password.'),
+    }),
+    []
   );
+
+  const value = useMemo(
+    () => ({ user, loading, signIn, signOut, resetPassword }),
+    [user, loading, signIn, signOut, resetPassword]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
@@ -79,7 +86,9 @@ export function useAuth() {
 export function AuthProviderWithBridge({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
-      <AuthBridge>{children}</AuthBridge>
+      <AuthBridge>
+        <ClearanceTypeProvider>{children}</ClearanceTypeProvider>
+      </AuthBridge>
     </AuthProvider>
   );
 }

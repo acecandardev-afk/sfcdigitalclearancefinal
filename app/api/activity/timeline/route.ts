@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { isStudentRecordsElevation, canRequestStudentClearance, isHrAdmin } from '@/lib/permissionsMatrix';
 
 export async function GET(req: Request) {
   const session = await getAppSession();
@@ -26,9 +27,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const isSuperadmin = roles.includes('superadmin');
-  const isStudent = roles.includes('student') && cr.studentId === userId;
-  if (!isSuperadmin && !isStudent) {
+  const isStaffAdmin = isStudentRecordsElevation(roles) || isHrAdmin(roles);
+  const isOwnStudentRequester =
+    canRequestStudentClearance(roles) && cr.studentId === userId;
+  if (!isStaffAdmin && !isOwnStudentRequester) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

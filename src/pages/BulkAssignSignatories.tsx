@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
+import { canManageBulkAssign } from '@/lib/permissionsMatrix';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Info, Loader2, Users, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatApiErrorBody } from '@/lib/userMessages';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
 import { PROGRAM_COURSES, YEAR_LEVEL_OPTIONS } from '@/constants/academicOptions';
 
 interface StudentProfile {
@@ -39,7 +41,7 @@ interface Signatory {
 export default function BulkAssignSignatories() {
   const navigate = useNavigate();
   const { roles, loading: roleLoading } = useUserRole();
-  const isSuperAdminUser = roles.includes('superadmin');
+  const allowBulkAssign = useMemo(() => canManageBulkAssign(roles), [roles]);
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [signatories, setSignatories] = useState<Signatory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,10 +51,10 @@ export default function BulkAssignSignatories() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!roleLoading && !isSuperAdminUser) {
+    if (!roleLoading && !allowBulkAssign) {
       navigate('/dashboard');
     }
-  }, [roleLoading, isSuperAdminUser, navigate]);
+  }, [roleLoading, allowBulkAssign, navigate]);
 
   const fetchStudents = useCallback(async () => {
     try {
@@ -66,7 +68,7 @@ export default function BulkAssignSignatories() {
       setStudents((json.students as StudentProfile[]) || []);
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load students');
+      toast.error(safeActionErrorMessage(error, 'Could not load students. Try refreshing the page.'));
     } finally {
       setLoading(false);
     }
@@ -92,15 +94,15 @@ export default function BulkAssignSignatories() {
       setSignatories(mapped);
     } catch (error) {
       console.error('Error fetching signatories:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load signatories');
+      toast.error(safeActionErrorMessage(error, 'Could not load signatories. Try refreshing the page.'));
     }
   }, []);
 
   useEffect(() => {
-    if (roleLoading || !isSuperAdminUser) return;
+    if (roleLoading || !allowBulkAssign) return;
     setLoading(true);
     void Promise.all([fetchStudents(), fetchSignatories()]);
-  }, [roleLoading, isSuperAdminUser, fetchStudents, fetchSignatories]);
+  }, [roleLoading, allowBulkAssign, fetchStudents, fetchSignatories]);
 
   const handleBulkAssign = async () => {
     if (selectedIds.size === 0) {
@@ -135,7 +137,7 @@ export default function BulkAssignSignatories() {
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Error bulk assigning:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to assign signatories');
+      toast.error(safeActionErrorMessage(error, 'Could not assign signatories. Try again.'));
     } finally {
       setAssigning(false);
     }
@@ -171,7 +173,7 @@ export default function BulkAssignSignatories() {
   return (
     <DashboardLayout>
       <div className="w-full p-6 lg:p-8">
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="w-full min-w-0 space-y-6">
           <div>
             <h1 className="text-2xl lg:text-3xl font-semibold text-foreground tracking-tight flex items-center gap-3">
               <UserCheck className="h-8 w-8 text-primary" />

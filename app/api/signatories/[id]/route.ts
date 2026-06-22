@@ -1,22 +1,22 @@
 import { NextResponse } from 'next/server';
+import { apiErrorResponse, apiMsg, apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { canDeleteSignatory, canWriteSignatories } from '@/lib/permissionsMatrix';
 
-function requireSuperadmin(session: any) {
+function requireSignatoryWriter(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
-  return Boolean(session?.user && roles.includes('superadmin'));
+  return Boolean(session?.user && canWriteSignatories(roles));
 }
 
-const unauthorized = () =>
-  NextResponse.json(
-    {
-      error: 'Unauthorized',
-      detail: 'Superadmin session required. Sign out and sign in again if this persists.',
-    },
-    { status: 401 }
-  );
+function requireSignatoryDelete(session: any) {
+  const roles = (session?.user?.roles ?? []) as string[];
+  return Boolean(session?.user && canDeleteSignatory(roles));
+}
+
+const unauthorized = () => apiErrorResponse(apiMsg.forbidden, 403);
 
 const UpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -24,16 +24,18 @@ const UpdateSchema = z.object({
   department: z.string().min(1).max(100).optional(),
   email: z.string().email().max(255).optional(),
   is_active: z.boolean().optional(),
+  institutional_cert_role: z.enum(['none', 'preparer', 'hrmdo', 'president']).optional(),
+  weekly_hours_json: z.unknown().nullable().optional(),
 });
 
 export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   const session = await getAppSession();
-  if (!requireSuperadmin(session)) return unauthorized();
+  if (!requireSignatoryWriter(session)) return unauthorized();
 
   const json = await req.json().catch(() => null);
   const parsed = UpdateSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Validation failed', issues: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   const id = ctx.params.id;
@@ -48,6 +50,10 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
         ...(s.department != null ? { department: s.department } : {}),
         ...(s.email != null ? { email: s.email.toLowerCase() } : {}),
         ...(s.is_active != null ? { isActive: s.is_active } : {}),
+        ...(s.institutional_cert_role != null
+          ? { institutionalCertRole: s.institutional_cert_role as 'none' | 'preparer' | 'hrmdo' | 'president' }
+          : {}),
+        ...(s.weekly_hours_json !== undefined ? { weeklyHoursJson: s.weekly_hours_json as object | null } : {}),
       },
     });
     return NextResponse.json({ signatory: updated });
@@ -55,53 +61,25 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     console.error('[PATCH /api/signatories/[id]]', e);
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2025') {
-        return NextResponse.json({ error: 'Not found', detail: 'No signatory with this id.' }, { status: 404 });
+        return apiErrorResponse(apiMsg.notFound, 404);
       }
       if (e.code === 'P2002') {
-        const target = Array.isArray(e.meta?.target) ? (e.meta?.target as string[]).join(', ') : 'unique field';
-        return NextResponse.json(
-          {
-            error: 'Duplicate value',
-            detail: `Another record already uses this ${target}.`,
-          },
-          { status: 409 }
+        return apiErrorResponse(
+          'This email is already in use. Choose a different email or ask an administrator.',
+          409
         );
       }
     }
-    const message = e instanceof Error ? e.message : 'Unknown error';
-    return NextResponse.json({ error: 'Could not update signatory', detail: message }, { status: 500 });
-  }
-}
-
-export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
-  const session = await getAppSession();
-  if (!requireSuperadmin(session)) return unauthorized();
-
-  const id = ctx.params.id;
-  try {
-    const existing = await prisma.signatory.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json({ error: 'Not found', detail: 'No signatory with this id.' }, { status: 404 });
-    }
-    if (existing.userId) {
-      await prisma.userRole.deleteMany({
-        where: { userId: existing.userId, role: 'signatory' as any },
-      });
-    }
-    await prisma.signatory.delete({ where: { id } });
-    return NextResponse.json({ success: true });
-  } catch (e: unknown) {
-    console.error('[DELETE /api/signatories/[id]]', e);
-    const message = e instanceof Error ? e.message : 'Unknown error';
     return NextResponse.json(
-      {
-        error: 'Could not remove signatory',
-        detail:
-          message.includes('Foreign key') || message.includes('violates')
-            ? 'This signatory is still referenced by clearances or other records. Remove those links first.'
-            : message,
-      },
+      { error: 'Could not update signatory. Please try again in a moment.' },
       { status: 500 }
     );
   }
+}
+
+export async function DELETE(_req: Request, _ctx: { params: { id: string } }) {
+  const session = await getAppSession();
+  if (!requireSignatoryDelete(session)) return unauthorized();
+
+  return apiErrorResponse('Signatories cannot be deleted. Use Archive instead.', 405);
 }

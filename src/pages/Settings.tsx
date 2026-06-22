@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserRole, AppRole } from '@/hooks/useUserRole';
+import { INSTITUTION_NAME } from '@/constants/institutionBranding';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +55,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 import { logActivity } from '@/hooks/useActivityLog';
 
 interface UserWithRoles {
@@ -83,7 +86,7 @@ export default function Settings() {
 
   // System settings state
   const [systemName, setSystemName] = useState('SFC-G DCS');
-  const [institutionName, setInstitutionName] = useState('St. Francis College - Guihulngan');
+  const [institutionName, setInstitutionName] = useState(INSTITUTION_NAME);
   const [adminEmail, setAdminEmail] = useState('admin@sfc-g.edu.ph');
   
   // Notification settings
@@ -120,7 +123,7 @@ export default function Settings() {
     setLoadingUsers(true);
     try {
       const res = await fetch('/api/admin/users', { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load users.'));
       const json = await res.json();
       const usersWithRoles: UserWithRoles[] = (json.users || []).map((u: any) => ({
         id: u.id,
@@ -131,7 +134,7 @@ export default function Settings() {
       setUsers(usersWithRoles);
     } catch (error) {
       console.error('Error fetching users:', error);
-      toast.error('Failed to load users');
+      toast.error(safeActionErrorMessage(error, 'Could not load users.'));
     } finally {
       setLoadingUsers(false);
     }
@@ -154,7 +157,7 @@ export default function Settings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roles: selectedRoles }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not update roles.'));
 
       // Log the activity
       await logActivity({
@@ -172,7 +175,7 @@ export default function Settings() {
       fetchActivityLogs();
     } catch (error) {
       console.error('Error updating roles:', error);
-      toast.error('Failed to update roles');
+      toast.error(safeActionErrorMessage(error, 'Could not update roles.'));
     } finally {
       setSavingRoles(false);
     }
@@ -194,7 +197,7 @@ export default function Settings() {
     setLoadingLogs(true);
     try {
       const res = await fetch('/api/admin/activity-logs', { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load activity logs.'));
       const json = await res.json();
       const logsWithUsers: ActivityLog[] = (json.logs || []).map((log: any) => ({
         id: log.id,
@@ -210,7 +213,7 @@ export default function Settings() {
       setActivityLogs(logsWithUsers);
     } catch (error) {
       console.error('Error fetching activity logs:', error);
-      toast.error('Failed to load activity logs');
+      toast.error(safeActionErrorMessage(error, 'Could not load activity logs.'));
     } finally {
       setLoadingLogs(false);
     }
@@ -268,7 +271,7 @@ export default function Settings() {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/system-settings', { credentials: 'include' });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load settings.'));
       const json = await res.json();
       const settings = (json.settings || {}) as Record<string, Record<string, unknown> | null>;
       const g = settings.general;
@@ -277,7 +280,7 @@ export default function Settings() {
       const cl = settings.clearance;
       if (g) {
         setSystemName((g.system_name as string) ?? 'SFC-G DCS');
-        setInstitutionName((g.institution_name as string) ?? 'Saint Francis College - Guihulngan');
+        setInstitutionName((g.institution_name as string) ?? INSTITUTION_NAME);
         setAdminEmail((g.admin_email as string) ?? 'admin@sfc-g.edu.ph');
       }
       if (n) {
@@ -299,7 +302,7 @@ export default function Settings() {
       }
     } catch (e) {
       console.error('Failed to load settings:', e);
-      toast.error('Failed to load settings');
+      toast.error(safeActionErrorMessage(e, 'Could not load settings.'));
     } finally {
       setLoading(false);
     }
@@ -331,11 +334,11 @@ export default function Settings() {
           },
         }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not save settings.'));
       toast.success('General settings saved successfully');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to save settings');
+      toast.error(safeActionErrorMessage(e, 'Could not save settings.'));
     } finally {
       setSaving(false);
     }
@@ -358,11 +361,11 @@ export default function Settings() {
           },
         }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not save settings.'));
       toast.success('Notification settings saved successfully');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to save settings');
+      toast.error(safeActionErrorMessage(e, 'Could not save settings.'));
     } finally {
       setSaving(false);
     }
@@ -384,11 +387,11 @@ export default function Settings() {
           },
         }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not save settings.'));
       toast.success('Security settings saved successfully');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to save settings');
+      toast.error(safeActionErrorMessage(e, 'Could not save settings.'));
     } finally {
       setSaving(false);
     }
@@ -419,11 +422,11 @@ export default function Settings() {
           },
         }),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not save the clearance period.'));
       toast.success('Clearance period saved');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to save clearance period');
+      toast.error(safeActionErrorMessage(e, 'Could not save the clearance period.'));
     } finally {
       setSaving(false);
     }
@@ -445,7 +448,7 @@ export default function Settings() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="w-full min-w-0 p-6 lg:p-8 xl:px-10 space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight flex items-center gap-3 text-[#1a3c5e] dark:text-blue-400">
@@ -948,7 +951,7 @@ export default function Settings() {
                   Official clearance period
                 </CardTitle>
                 <CardDescription>
-                  Students see this window on My Clearance, the calendar, and printable reports. Leave both fields empty
+                  Students see this window on My Clearance and the calendar. Leave both fields empty
                   if you are not using a fixed period yet.
                 </CardDescription>
               </CardHeader>

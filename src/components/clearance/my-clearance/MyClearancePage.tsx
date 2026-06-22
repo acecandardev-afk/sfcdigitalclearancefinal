@@ -37,7 +37,7 @@ import { logActivity } from '@/hooks/useActivityLog';
 import { DEFAULT_REQUIREMENTS, type UiStepRow, type UiStepStatus } from './myClearanceTypes';
 import { toast } from 'sonner';
 import { safeActionErrorMessage } from '@/lib/userFacingError';
-import { formatApiErrorBody } from '@/lib/userMessages';
+import { userErrorFromApi } from '@/lib/userMessages';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -51,21 +51,21 @@ import {
 } from '@/components/ui/alert-dialog';
 
 const OFFICE_COLUMNS = [
-  { key: 'office', label: 'Office / Unit' },
+  { key: 'office', label: 'Office' },
   { key: 'officer', label: 'Assigned officer' },
   { key: 'status', label: 'Status' },
   { key: 'date', label: 'Date' },
   { key: 'schedule', label: 'Schedule' },
-  { key: 'remarks', label: 'Remarks' },
+  { key: 'remarks', label: 'Notes' },
 ];
 
 const ADMIN_COLUMNS = [
-  { key: 'office', label: 'Official' },
-  { key: 'officer', label: 'Position' },
+  { key: 'office', label: 'Office' },
+  { key: 'officer', label: 'Assigned officer' },
   { key: 'status', label: 'Status' },
   { key: 'date', label: 'Date' },
   { key: 'schedule', label: 'Schedule' },
-  { key: 'remarks', label: 'Remarks' },
+  { key: 'remarks', label: 'Notes' },
 ];
 
 function formatClearanceRef(id: string | null) {
@@ -85,6 +85,9 @@ export default function MyClearancePage() {
     setDraftRequestId,
     reload,
     readonlyCompleted,
+    submissionAllowed,
+    submissionBlockReason,
+    preClearance,
   } = useStudentMyClearanceData();
   const { period: clearancePeriod, loading: clearancePeriodLoading } = useClearancePeriodSettings();
 
@@ -99,6 +102,8 @@ export default function MyClearancePage() {
   const [noteRow, setNoteRow] = useState<UiStepRow | null>(null);
 
   const activeRequestId = draftRequestId ?? completedRequestId;
+  const preClearanceComplete = preClearance?.allComplete === true;
+  const blockSubmissions = readonlyCompleted || !submissionAllowed;
   const studentDisplayName =
     session?.user?.name?.trim() ||
     (session?.user as { email?: string } | undefined)?.email?.trim() ||
@@ -118,14 +123,6 @@ export default function MyClearancePage() {
     }
     if (!allCleared) prevAllCleared.current = false;
   }, [rows]);
-
-  useEffect(() => {
-    if (modalRow || loading) return;
-    if (!batchSignatoryIds.length) return;
-    const nextId = batchSignatoryIds[0];
-    const row = rows.find((r) => r.signatoryId === nextId && r.uiStatus === 'Request');
-    if (row) setModalRow(row);
-  }, [modalRow, loading, batchSignatoryIds, rows]);
 
   useEffect(() => {
     if (!timelineRow) {
@@ -229,29 +226,60 @@ export default function MyClearancePage() {
     setBatchSignatoryIds([]);
   };
 
-  const submitModal = async ({ note, files }: { note: string; files: File[] }) => {
+  const submitModal = async (payload: {
+    note: string;
+    files: File[];
+    fulfillments?: { requirementId: number; documentFiles: File[]; physicalAttested?: boolean }[];
+  }) => {
     if (!user?.id || !modalRow) return;
-    const inBatch = batchSignatoryIds.includes(modalRow.signatoryId);
+    const { note, files, fulfillments } = payload;
+    const isBatchAll = batchSignatoryIds.length >= 2;
+
+    const uploadFile = async (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'clearance-files');
+      const up = await fetch('/api/blob/upload', { method: 'POST', body: fd, credentials: 'include' });
+      const raw = await up.json().catch(() => ({}));
+      if (!up.ok) {
+        throw new Error(userErrorFromApi(raw, 'Could not upload the file. Try again or use a smaller file.'));
+      }
+      const j = raw as { blob_url?: string; file_name?: string; content_type?: string | null };
+      if (!j.blob_url || typeof j.blob_url !== 'string') {
+        throw new Error('The file upload did not finish. Try again or use a smaller file.');
+      }
+      return {
+        blob_url: j.blob_url,
+        file_name: j.file_name ?? file.name,
+        content_type: j.content_type ?? null,
+      };
+    };
+
     try {
-      const uploaded: { blob_url: string; file_name: string; content_type: string | null }[] = [];
-      for (const file of files) {
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('folder', 'clearance-files');
-        const up = await fetch('/api/blob/upload', { method: 'POST', body: fd, credentials: 'include' });
-        const raw = await up.json().catch(() => ({}));
-        if (!up.ok) {
-          throw new Error(formatApiErrorBody(raw) || 'File upload failed');
+      let uploadedFlat: { blob_url: string; file_name: string; content_type: string | null }[] = [];
+      let fulfillmentsPayload:
+        | { requirement_id: number; document_urls?: typeof uploadedFlat; physical_attested?: boolean }[]
+        | undefined;
+
+      if (fulfillments?.length) {
+        fulfillmentsPayload = [];
+        for (const f of fulfillments) {
+          const document_urls: typeof uploadedFlat = [];
+          for (const file of f.documentFiles) {
+            const u = await uploadFile(file);
+            document_urls.push(u);
+          }
+          fulfillmentsPayload.push({
+            requirement_id: f.requirementId,
+            ...(document_urls.length ? { document_urls } : {}),
+            ...(f.physicalAttested != null ? { physical_attested: f.physicalAttested } : {}),
+          });
         }
-        const j = raw as { blob_url?: string; file_name?: string; content_type?: string | null };
-        if (!j.blob_url || typeof j.blob_url !== 'string') {
-          throw new Error('Upload did not return a file URL. Check blob storage configuration.');
+      } else {
+        uploadedFlat = [];
+        for (const file of files) {
+          uploadedFlat.push(await uploadFile(file));
         }
-        uploaded.push({
-          blob_url: j.blob_url,
-          file_name: j.file_name ?? file.name,
-          content_type: j.content_type ?? null,
-        });
       }
 
       const hadRequest = !!draftRequestId;
@@ -261,19 +289,21 @@ export default function MyClearancePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clearanceRequestId: draftRequestId,
-          readonlyCompleted,
+          readonlyCompleted: blockSubmissions,
           signatoryId: modalRow.signatoryId,
           sequenceOrder: modalRow.sequenceOrder,
           signatoryGroup: modalRow.signatoryGroup,
           authoritySequenceOrder: modalRow.authoritySequenceOrder,
           signatureId: modalRow.signatureId,
           note,
-          files: uploaded,
+          files: uploadedFlat,
+          ...(fulfillmentsPayload ? { fulfillments: fulfillmentsPayload } : {}),
+          ...(isBatchAll ? { batchOperationalSignatoryIds: [...batchSignatoryIds] } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(formatApiErrorBody(data) || 'Submission failed');
+        throw new Error(userErrorFromApi(data, 'Could not submit to that office. Try again.'));
       }
 
       if (!hadRequest && data.requestId) {
@@ -292,16 +322,21 @@ export default function MyClearancePage() {
         },
       });
 
-      toast.success(modalRow.signatureId ? 'Resubmitted for review' : 'Request submitted');
-      const submittedSignatoryId = modalRow.signatoryId;
+      toast.success(
+        isBatchAll
+          ? `Submitted to ${batchSignatoryIds.length} offices`
+          : modalRow.signatureId
+            ? 'Resubmitted for review'
+            : 'Request submitted',
+      );
       setModalRow(null);
-      if (inBatch) {
-        setBatchSignatoryIds((ids) => ids.filter((id) => id !== submittedSignatoryId));
+      if (isBatchAll) {
+        setBatchSignatoryIds([]);
       }
       await reload();
     } catch (e) {
       console.error(e);
-      toast.error(safeActionErrorMessage(e, 'Submission failed'));
+      toast.error(safeActionErrorMessage(e, 'Could not submit to that office. Try again.'));
     }
   };
 
@@ -348,16 +383,12 @@ export default function MyClearancePage() {
             My clearance
           </h1>
           <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Your official exit clearance form below. Use Calendar or Report for planning; print when every office is
-            approved.
+            Your official exit clearance form below. Use Calendar for planning; print when every office is approved.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25 bg-background/80 backdrop-blur-sm">
             <Link to="/dashboard/clearances/calendar">Calendar</Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild className="border-[#1a3c5e]/25 bg-background/80 backdrop-blur-sm">
-            <Link to="/dashboard/clearances/report">Report</Link>
           </Button>
           {allCleared && (
             <Button
@@ -538,6 +569,30 @@ export default function MyClearancePage() {
         </div>
       )}
 
+      {!preClearanceComplete && preClearance && !readonlyCompleted ? (
+        <div className="rounded-sm border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 print:hidden">
+          <p className="font-medium">Physical verification required before clearance.</p>
+          <p className="mt-1">
+            Visit these offices in person and have staff mark you verified. You cannot submit clearance requests until
+            all three are complete.
+          </p>
+          <ul className="mt-2 list-inside list-disc space-y-0.5 text-amber-900/90 dark:text-amber-200/90">
+            {preClearance.gates.map((g) => (
+              <li key={g.gate} className={g.verified ? 'line-through opacity-70' : undefined}>
+                {g.officeLabel}
+                {g.verified ? ' — verified' : ' — pending'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {!submissionAllowed && !readonlyCompleted && submissionBlockReason && preClearanceComplete ? (
+        <div className="rounded-sm border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 print:hidden">
+          <span className="font-medium">Submissions paused.</span> {submissionBlockReason}
+        </div>
+      ) : null}
+
       <div className="space-y-4 rounded-sm border border-[#1a3c5e]/15 bg-[hsl(42_40%_99%)] p-5 shadow-sm dark:border-border dark:bg-card/80 print:hidden">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="shrink-0">
@@ -593,10 +648,14 @@ export default function MyClearancePage() {
             rows={filterRows(operationalRows)}
             columns={OFFICE_COLUMNS}
             mode="parallel"
-            disabled={readonlyCompleted}
-            disabledMessage="This clearance cycle is closed."
-            onRequestClick={(r) => !readonlyCompleted && setModalRow(r)}
-            onResubmitClick={(r) => !readonlyCompleted && setModalRow(r)}
+            disabled={blockSubmissions}
+            disabledMessage={
+              readonlyCompleted
+                ? 'This clearance cycle is closed.'
+                : submissionBlockReason || 'Submissions are not available right now.'
+            }
+            onRequestClick={(r) => !blockSubmissions && setModalRow(r)}
+            onResubmitClick={(r) => !blockSubmissions && setModalRow(r)}
             onHistoryClick={(r) => setTimelineRow(r)}
             onBatchSubmitIntent={() => setBatchConfirmOpen(true)}
             batchRequestCount={operationalRequestCount}
@@ -676,10 +735,10 @@ export default function MyClearancePage() {
             rows={filterRows(adminRows)}
             columns={ADMIN_COLUMNS}
             mode="sequential"
-            disabled={!allOperationalApproved || readonlyCompleted}
+            disabled={!allOperationalApproved || blockSubmissions}
             disabledMessage="Complete all operational offices first."
-            onRequestClick={(r) => !readonlyCompleted && setModalRow(r)}
-            onResubmitClick={(r) => !readonlyCompleted && setModalRow(r)}
+            onRequestClick={(r) => !blockSubmissions && setModalRow(r)}
+            onResubmitClick={(r) => !blockSubmissions && setModalRow(r)}
             onHistoryClick={(r) => setTimelineRow(r)}
             stepNoteRequestId={activeRequestId}
             onStepNoteClick={(r) => setNoteRow(r)}
@@ -696,8 +755,8 @@ export default function MyClearancePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Submit all operational requests?</AlertDialogTitle>
             <AlertDialogDescription>
-              You will complete the upload checklist for each office one after another ({operationalRequestCount}{' '}
-              remaining). You can cancel anytime; progress already submitted is kept.
+              You will complete one upload checklist; the same documents and confirmations will be sent to all{' '}
+              {operationalRequestCount} operational offices still awaiting request.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -709,9 +768,15 @@ export default function MyClearancePage() {
 
       {modalRow && (
         <OfficeRequestModal
-          key={modalRow.signatoryId}
-          officeName={modalRow.office}
+          key={batchSignatoryIds.length >= 2 ? `batch-${batchSignatoryIds.join(',')}` : modalRow.signatoryId}
+          officeName={
+            batchSignatoryIds.length >= 2
+              ? `All operational offices (${batchSignatoryIds.length}) — same checklist for each`
+              : modalRow.office
+          }
           requirements={modalRow.requirements?.length ? modalRow.requirements : DEFAULT_REQUIREMENTS}
+          physicalPreVerified={preClearanceComplete}
+          legacySubmit={!modalRow.hasDbRequirements}
           onClose={abandonBatch}
           onSubmit={submitModal}
         />
@@ -730,7 +795,7 @@ export default function MyClearancePage() {
         clearanceRequestId={activeRequestId}
         signatoryId={noteRow?.signatoryId ?? ''}
         officeName={noteRow?.office ?? ''}
-        disabled={readonlyCompleted}
+        disabled={blockSubmissions}
       />
     </div>
   );

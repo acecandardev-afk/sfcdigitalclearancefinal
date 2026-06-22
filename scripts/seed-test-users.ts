@@ -2,9 +2,10 @@
  * Minimal reset seed.
  * Run: npm run seed
  *
- * Requires in .env:
+ * Requires a Supabase project. Add to .env (run with: npm run seed:supabase):
  *   VITE_SUPABASE_URL (or SUPABASE_URL)
  *   SUPABASE_SERVICE_ROLE_KEY (from Supabase Dashboard → Project Settings → API)
+ * For local Neon/Prisma + NextAuth, use: npm run seed (prisma/seed.ts) instead.
  */
 
 import { readFileSync } from 'fs';
@@ -25,9 +26,12 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !serviceRoleKey) {
-  console.error('Missing env. Add to .env:');
+  console.error('Missing Supabase env. Add to .env:');
   if (!supabaseUrl) console.error('  VITE_SUPABASE_URL=https://your-project.supabase.co');
   if (!serviceRoleKey) console.error('  SUPABASE_SERVICE_ROLE_KEY=your-service-role-key');
+  console.error(
+    'If you use Prisma/Neon + NextAuth (no Supabase auth), use: npm run seed',
+  );
   process.exit(1);
 }
 
@@ -36,7 +40,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 });
 
 const ADMIN_EMAIL = 'sfcadmin@test.com';
-const SIGNATORY_EMAIL = 'signatory1@sfc-g.edu.ph';
+const SIGNATORY_EMAIL = 'signatory1@gmail.com';
 const STUDENT_EMAIL = 'student1@test.com';
 const DEFAULT_PASSWORD = 'test1234';
 
@@ -69,7 +73,6 @@ async function seed() {
     const users: { id: string; email: string | null }[] = [];
     let page = 1;
     const perPage = 1000;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
       if (error) throw error;

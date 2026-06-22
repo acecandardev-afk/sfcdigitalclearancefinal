@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "functions": {
+    "app/api/student/clearance-office-submit/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/admin/students/bulk-import/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

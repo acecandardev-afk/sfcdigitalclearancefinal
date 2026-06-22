@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage, userErrorFromApi } from '@/lib/userMessages';
 import ClearanceFilesViewer from './ClearanceFilesViewer';
 import { TERMS } from '@/lib/terms';
 import { logActivity } from '@/hooks/useActivityLog';
@@ -53,6 +55,10 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination';
+
+function isAwaitingSignatureStatus(status: string) {
+  return status === 'pending' || status === 'in_progress';
+}
 
 interface PendingSignature {
   id: string;
@@ -121,13 +127,12 @@ export default function SignatoryDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedSignature, setSelectedSignature] = useState<PendingSignature | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [notes, setNotes] = useState('');
   const [remarks, setRemarks] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
   const [filesViewerOpen, setFilesViewerOpen] = useState(false);
   const [viewingSignature, setViewingSignature] = useState<PendingSignature | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'action' | 'pending' | 'approved' | 'rejected'>('action');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'action' | 'pending' | 'approved' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'title'>('date');
@@ -135,10 +140,12 @@ export default function SignatoryDashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkActionType, setBulkActionType] = useState<'approve' | 'reject'>('approve');
-  const [bulkNotes, setBulkNotes] = useState('');
+  const [bulkRemarks, setBulkRemarks] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [signatoryId, setSignatoryId] = useState<string | null>(null);
   const [signatoryInfo, setSignatoryInfo] = useState<{ name: string; position: string; department: string } | null>(null);
+  /** API returned NO_SIGNATORY_ROW — user has signatory role but no linked office row (wrong account or data). */
+  const [noLinkedOffice, setNoLinkedOffice] = useState(false);
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -149,17 +156,33 @@ export default function SignatoryDashboard() {
 
   const fetchPendingSignatures = async () => {
     try {
+      setNoLinkedOffice(false);
       const res = await fetch('/api/signatory/pending', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load signatures');
-      const json = await res.json();
+      const json = (await res.json().catch(() => ({}))) as {
+        code?: string;
+        signatory?: { id: string; name: string; position: string; department: string };
+        signatures?: PendingSignature[];
+      };
+
+      if (res.status === 404 && json?.code === 'NO_SIGNATORY_ROW') {
+        setSignatoryId(null);
+        setSignatoryInfo(null);
+        setSignatures([]);
+        setNoLinkedOffice(true);
+        return;
+      }
+
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load pending signatures.'));
 
       const sig = json.signatory;
       setSignatoryId(sig?.id ?? null);
-      setSignatoryInfo(sig ? { name: sig.name || 'Signatory', position: sig.position || '', department: sig.department || '' } : null);
+      setSignatoryInfo(
+        sig ? { name: sig.name || 'Signatory', position: sig.position || '', department: sig.department || '' } : null
+      );
       setSignatures((json.signatures || []) as PendingSignature[]);
     } catch (error) {
       console.error('Error fetching signatures:', error);
-      toast.error('Failed to load pending signatures');
+      toast.error(safeActionErrorMessage(error, 'Could not load pending signatures.'));
     } finally {
       setLoading(false);
     }
@@ -168,7 +191,6 @@ export default function SignatoryDashboard() {
   const handleAction = (signature: PendingSignature, type: 'approve' | 'reject') => {
     setSelectedSignature(signature);
     setActionType(type);
-    setNotes('');
     setRemarks('');
     setDialogOpen(true);
   };
@@ -180,6 +202,10 @@ export default function SignatoryDashboard() {
 
   const submitAction = async () => {
     if (!selectedSignature) return;
+    if (!remarks.trim()) {
+      toast.error('Remarks are required');
+      return;
+    }
 
     setActionLoading(true);
     try {
@@ -190,18 +216,18 @@ export default function SignatoryDashboard() {
         body: JSON.stringify({
           signature_id: selectedSignature.id,
           action: actionType,
-          notes: notes || null,
-          remarks: remarks || null,
+          remarks: remarks.trim(),
         }),
       });
-      if (!res.ok) throw new Error('Failed to update signature');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(userErrorFromApi(json, 'Could not save your decision. Please try again.'));
 
       toast.success(`Request ${actionType === 'approve' ? 'signed' : 'rejected'} successfully`);
       setDialogOpen(false);
       fetchPendingSignatures();
     } catch (error) {
       console.error('Error updating signature:', error);
-      toast.error('Failed to update signature');
+      toast.error(safeActionErrorMessage(error, 'Could not save your decision. Please try again.'));
     } finally {
       setActionLoading(false);
     }
@@ -210,7 +236,8 @@ export default function SignatoryDashboard() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="pending">{TERMS.PENDING}</Badge>;
+      case 'in_progress':
+        return <Badge variant="pending">{status === 'in_progress' ? 'In progress' : TERMS.PENDING}</Badge>;
       case 'approved':
         return <Badge variant="approved">{TERMS.APPROVED}</Badge>;
       case 'rejected':
@@ -220,12 +247,12 @@ export default function SignatoryDashboard() {
     }
   };
 
-  /** All rows still marked pending (includes blocked by authority sequence). */
-  const allPendingCount = signatures.filter((s) => s.status === 'pending').length;
+  /** All rows still awaiting action (includes blocked by authority sequence). */
+  const allPendingCount = signatures.filter((s) => isAwaitingSignatureStatus(s.status)).length;
   /** You can sign these now (standard or your turn in authority chain). */
-  const needsActionCount = signatures.filter((s) => s.status === 'pending' && s.canSign).length;
+  const needsActionCount = signatures.filter((s) => isAwaitingSignatureStatus(s.status) && s.canSign).length;
   /** Waiting on other signatories before you can act. */
-  const blockedPendingCount = signatures.filter((s) => s.status === 'pending' && !s.canSign).length;
+  const blockedPendingCount = signatures.filter((s) => isAwaitingSignatureStatus(s.status) && !s.canSign).length;
   const approvedCount = signatures.filter((s) => s.status === 'approved').length;
   const rejectedCount = signatures.filter((s) => s.status === 'rejected').length;
 
@@ -237,7 +264,7 @@ export default function SignatoryDashboard() {
   const uniqueStudentIds = new Set(signatures.map((s) => (s.clearance_request as any)?.student_id).filter(Boolean));
   const studentsAwaiting = new Set(
     signatures
-      .filter((s) => s.status === 'pending' && s.canSign)
+      .filter((s) => isAwaitingSignatureStatus(s.status) && s.canSign)
       .map((s) => (s.clearance_request as any)?.student_id)
       .filter(Boolean)
   ).size;
@@ -290,7 +317,7 @@ export default function SignatoryDashboard() {
       });
       result.push({
         date: dateStr,
-        pending: daySigs.filter((s) => s.status === 'pending' && s.canSign).length,
+        pending: daySigs.filter((s) => isAwaitingSignatureStatus(s.status) && s.canSign).length,
         approved: daySigs.filter((s) => s.status === 'approved').length,
         rejected: daySigs.filter((s) => s.status === 'rejected').length,
         total: daySigs.length,
@@ -304,9 +331,9 @@ export default function SignatoryDashboard() {
       statusFilter === 'all'
         ? true
         : statusFilter === 'action'
-          ? s.status === 'pending' && s.canSign
+          ? isAwaitingSignatureStatus(s.status) && s.canSign
           : statusFilter === 'pending'
-            ? s.status === 'pending'
+            ? isAwaitingSignatureStatus(s.status)
             : s.status === statusFilter;
     const query = searchQuery.toLowerCase();
     const matchesSearch = !query || 
@@ -340,7 +367,9 @@ export default function SignatoryDashboard() {
 
   // Bulk action helpers (must be after paginatedSignatures is defined)
   // Only allow bulk actions on signatures that can sign (previous are approved)
-  const signableSignaturesOnPage = paginatedSignatures.filter(s => s.status === 'pending' && s.canSign);
+  const signableSignaturesOnPage = paginatedSignatures.filter(
+    (s) => isAwaitingSignatureStatus(s.status) && s.canSign
+  );
   const allSignableSelected = signableSignaturesOnPage.length > 0 && 
     signableSignaturesOnPage.every(s => selectedIds.has(s.id));
   const someSignableSelected = signableSignaturesOnPage.some(s => selectedIds.has(s.id));
@@ -373,12 +402,16 @@ export default function SignatoryDashboard() {
       return;
     }
     setBulkActionType(type);
-    setBulkNotes('');
+    setBulkRemarks('');
     setBulkDialogOpen(true);
   };
 
   const submitBulkAction = async () => {
     if (selectedIds.size === 0) return;
+    if (!bulkRemarks.trim()) {
+      toast.error('Remarks are required');
+      return;
+    }
 
     setBulkActionLoading(true);
     try {
@@ -390,11 +423,11 @@ export default function SignatoryDashboard() {
           body: JSON.stringify({
             signature_id: id,
             action: bulkActionType,
-            notes: bulkNotes || null,
-            remarks: null,
+            remarks: bulkRemarks.trim(),
           }),
         });
-        if (!res.ok) throw new Error('Failed to update signatures');
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(userErrorFromApi(json, 'Could not update one or more signatures.'));
       }
 
       const sid = signatoryId;
@@ -421,7 +454,7 @@ export default function SignatoryDashboard() {
       fetchPendingSignatures();
     } catch (error) {
       console.error('Error updating signatures:', error);
-      toast.error('Failed to update signatures');
+      toast.error(safeActionErrorMessage(error, 'Could not update one or more signatures.'));
     } finally {
       setBulkActionLoading(false);
     }
@@ -449,7 +482,7 @@ export default function SignatoryDashboard() {
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 bg-background/75 min-h-screen">
+    <div className="w-full min-w-0 p-6 lg:p-8 xl:px-10 space-y-8 bg-background/75 min-h-screen">
       {/* Header with Live indicator */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -503,6 +536,26 @@ export default function SignatoryDashboard() {
           </div>
         </div>
       </div>
+
+      {noLinkedOffice && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="text-lg">No student-clearance office linked to this login</CardTitle>
+            <CardDescription className="text-base leading-relaxed">
+              Your account has the signatory role, but it is not attached to a student-clearance office record (or
+              your email does not match any row). Use a seeded student-line account (for example{' '}
+              <code className="rounded bg-muted px-1 text-foreground">signatory1@gmail.com</code> through{' '}
+              <code className="rounded bg-muted px-1 text-foreground">signatory15@gmail.com</code>) that matches the
+              registrar list, or ask an administrator to open <strong>Signatories</strong> and link your user to the
+              correct office.
+              <span className="mt-3 block text-sm text-muted-foreground">
+                Exit-clearance-only accounts (<code className="rounded bg-muted px-1 text-foreground">institutional…@gmail.com</code>) do
+                not receive student clearance requests on this page.
+              </span>
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Stats - Modern cards with hover effects */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -689,11 +742,11 @@ export default function SignatoryDashboard() {
                   <div
                     key={signature.id}
                     className={`flex flex-col lg:flex-row lg:items-center justify-between p-4 rounded-xl border border-border/60 hover:bg-muted/40 hover:border-primary/20 hover:shadow-sm transition-all duration-300 gap-4 ${
-                      signature.status === 'pending' && !signature.canSign ? 'opacity-60' : ''
+                      isAwaitingSignatureStatus(signature.status) && !signature.canSign ? 'opacity-60' : ''
                     }`}
                   >
                     <div className="flex items-start gap-4">
-                      {signature.status === 'pending' && signature.canSign && (
+                      {isAwaitingSignatureStatus(signature.status) && signature.canSign && (
                         <Checkbox
                           checked={selectedIds.has(signature.id)}
                           onCheckedChange={() => toggleSelectOne(signature.id)}
@@ -722,7 +775,7 @@ export default function SignatoryDashboard() {
                         <p className="text-xs text-muted-foreground">
                           ID: {signature.clearance_request.profiles.student_id || 'N/A'}
                         </p>
-                        {signature.status === 'pending' && !signature.canSign && (
+                        {isAwaitingSignatureStatus(signature.status) && !signature.canSign && (
                           <p className="text-xs text-warning mt-1 flex items-center gap-1">
                             <Lock className="h-3 w-3" />
                             Pending approval from previous signatories
@@ -753,7 +806,7 @@ export default function SignatoryDashboard() {
                         <Paperclip className="h-4 w-4 mr-1" />
                         Files
                       </Button>
-                      {signature.status === 'pending' && signature.canSign && (
+                      {isAwaitingSignatureStatus(signature.status) && signature.canSign && (
                         <>
                           <Button
                             variant="success"
@@ -1005,32 +1058,24 @@ export default function SignatoryDashboard() {
             </DialogTitle>
             <DialogDescription>
               {actionType === 'approve'
-                ? 'You are about to sign this clearance request. Add optional notes below, then confirm.'
-                : 'Provide a reason for declining this request.'}
+                ? 'You are about to sign this clearance request. Enter required remarks below, then confirm.'
+                : 'Provide remarks explaining why this request is being rejected.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Notes (optional)</Label>
+              <Label>Remarks (required)</Label>
               <Textarea
                 placeholder={
                   actionType === 'approve'
-                    ? 'Add any notes for the student...'
+                    ? 'Enter remarks for the student...'
                     : 'Explain why this request is being rejected...'
                 }
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Remarks (optional)</Label>
-              <Textarea
-                placeholder="Add any remarks that will be visible on the request..."
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Remarks will be displayed on the student's request record.
+                Remarks will be displayed on the student&apos;s request record.
               </p>
             </div>
           </div>
@@ -1041,7 +1086,7 @@ export default function SignatoryDashboard() {
             <Button
               variant={actionType === 'approve' ? 'success' : 'destructive'}
               onClick={submitAction}
-              disabled={actionLoading}
+              disabled={actionLoading || !remarks.trim()}
             >
               {actionLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -1065,21 +1110,21 @@ export default function SignatoryDashboard() {
             </DialogTitle>
             <DialogDescription>
               {bulkActionType === 'approve'
-                ? `You are about to sign ${selectedIds.size} request(s). Add optional notes below, then confirm.`
-                : `Provide a reason for declining ${selectedIds.size} request(s).`}
+                ? `You are about to sign ${selectedIds.size} request(s). Enter required remarks below, then confirm.`
+                : `Provide remarks for declining ${selectedIds.size} request(s).`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Notes (optional - applies to all selected)</Label>
+              <Label>Remarks (required — applies to all selected)</Label>
               <Textarea
                 placeholder={
                   bulkActionType === 'approve'
-                    ? 'Add any notes for the students...'
+                    ? 'Enter remarks for the students...'
                     : 'Explain why these requests are being rejected...'
                 }
-                value={bulkNotes}
-                onChange={(e) => setBulkNotes(e.target.value)}
+                value={bulkRemarks}
+                onChange={(e) => setBulkRemarks(e.target.value)}
               />
             </div>
           </div>
@@ -1090,7 +1135,7 @@ export default function SignatoryDashboard() {
             <Button
               variant={bulkActionType === 'approve' ? 'success' : 'destructive'}
               onClick={submitBulkAction}
-              disabled={bulkActionLoading}
+              disabled={bulkActionLoading || !bulkRemarks.trim()}
             >
               {bulkActionLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

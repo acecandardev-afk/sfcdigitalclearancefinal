@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppSession } from '@/lib/getAppSession';
 import { prisma } from '@/server/db';
+import { resolveSignatoryForSessionUser } from '@/server/resolveSignatoryForSessionUser';
 
 export async function GET() {
   const session = await getAppSession();
@@ -10,10 +11,11 @@ export async function GET() {
   }
 
   const userId = (session.user as any).id as string;
-  const signatory = await prisma.signatory.findUnique({
-    where: { userId },
-    select: { id: true, name: true, position: true, department: true },
-  });
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const signatory = await resolveSignatoryForSessionUser(prisma, userId);
 
   if (!signatory) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   return NextResponse.json({ signatory });

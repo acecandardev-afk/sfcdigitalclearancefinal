@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+
+/** Per-user; must not be cached by a CDN. */
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const session = await getAppSession();
@@ -47,7 +51,7 @@ export async function PATCH(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = PatchSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   if (parsed.data.markAll) {
@@ -83,7 +87,7 @@ export async function DELETE(req: Request) {
   const url = new URL(req.url);
   const id = url.searchParams.get('id');
   if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 400 });
   }
 
   await prisma.notification.deleteMany({ where: { userId, id } });

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { apiValidationErrorResponse } from '@/server/apiUserError';
 import { getAppSession } from '@/lib/getAppSession';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
+import { writeAuditLog } from '@/server/auditLog';
 
 function requireSuperadmin(session: any) {
   const roles = (session?.user?.roles ?? []) as string[];
@@ -39,7 +41,7 @@ export async function PUT(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = PutSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationErrorResponse();
   }
 
   await prisma.systemSetting.upsert({
@@ -47,6 +49,16 @@ export async function PUT(req: Request) {
     create: { key: parsed.data.key, valueJson: parsed.data.valueJson },
     update: { valueJson: parsed.data.valueJson },
   });
+
+  const uid = (session.user as { id?: string }).id;
+  if (uid) {
+    void writeAuditLog({
+      userId: uid,
+      action: 'system_setting_upsert',
+      details: { key: parsed.data.key },
+      req,
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

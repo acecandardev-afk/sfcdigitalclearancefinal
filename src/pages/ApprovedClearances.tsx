@@ -25,6 +25,8 @@ import {
 import { CheckCircle, FileText, Loader2, Search, ArrowUpDown, Eye } from 'lucide-react';
 import { TERMS } from '@/lib/terms';
 import { toast } from 'sonner';
+import { safeActionErrorMessage } from '@/lib/userFacingError';
+import { friendlyApiErrorMessage } from '@/lib/userMessages';
 
 interface ApprovedSignature {
   id: string;
@@ -66,12 +68,12 @@ export default function ApprovedClearances() {
   const fetchApprovedSignatures = async () => {
     try {
       const res = await fetch('/api/signatory/history', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load processed requests');
+      if (!res.ok) throw new Error(await friendlyApiErrorMessage(res, 'Could not load processed requests.'));
       const json = await res.json();
       setSignatures((json.signatures || []) as ApprovedSignature[]);
     } catch (error) {
       console.error('Error fetching approved signatures:', error);
-      toast.error('Failed to load processed requests');
+      toast.error(safeActionErrorMessage(error, 'Could not load processed requests.'));
     } finally {
       setLoading(false);
     }
@@ -139,7 +141,7 @@ export default function ApprovedClearances() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-8">
+      <div className="w-full min-w-0 p-6 lg:p-8 xl:px-10 space-y-8">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-display font-bold">Completed</h1>
@@ -256,7 +258,7 @@ export default function ApprovedClearances() {
                   {paginatedSignatures.map((signature, index) => (
                     <div
                       key={signature.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-slide-up gap-4"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/30 transition-colors animate-ec-slide-up gap-4"
                       style={{ animationDelay: `${index * 0.05}s` }}
                     >
                       <div className="flex items-start gap-4">
