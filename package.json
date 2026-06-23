@@ -12,6 +12,7 @@
     "start": "next start",
     "dev:vite": "vite",
     "build:vite": "vite build",
+    "setup:db": "prisma migrate deploy && prisma db seed",
     "seed": "npx prisma db seed",
     "seed:admin": "npx prisma db seed",
     "seed:supabase": "npx tsx scripts/seed-test-users.ts",
