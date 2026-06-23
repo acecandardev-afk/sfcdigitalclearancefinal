@@ -13,6 +13,7 @@
     "dev:vite": "vite",
     "build:vite": "vite build",
     "setup:db": "prisma migrate deploy && prisma db seed",
+    "sync:vercel-db": "powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-db-and-seed.ps1",
     "seed": "npx prisma db seed",
     "seed:admin": "npx prisma db seed",
     "seed:supabase": "npx tsx scripts/seed-test-users.ts",

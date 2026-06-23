@@ -53,6 +53,7 @@ If `BLOB_READ_WRITE_TOKEN` is not set, uploads are saved locally under `public/u
 | `DATABASE_URL` | Neon **pooled** connection string (`?sslmode=require`) |
 | `NEXTAUTH_SECRET` | Long random string (`openssl rand -base64 32`) |
 | `CLEARANCE_VERIFY_SECRET` | Same as or separate from `NEXTAUTH_SECRET` |
+| `BOOTSTRAP_SECRET` | Optional: one-time create first admin via POST `/api/admin/bootstrap` if DB is empty |
 | `BLOB_READ_WRITE_TOKEN` | From Vercel → Storage → Blob (link store to project) |
 | `NEXTAUTH_URL` | Production only: `https://your-project.vercel.app` |
 
